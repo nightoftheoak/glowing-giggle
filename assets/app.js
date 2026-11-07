@@ -320,15 +320,16 @@
     const h = halves(pts);
     const parts = [];
     if (h) {
-      const shift = h.b - h.a;
-      parts.push(`Typical date: <b>${idxLabel(Math.round(h.a))}</b> in ${h.aLab} vs. <b>${idxLabel(Math.round(h.b))}</b> in ${h.bLab} (${Math.abs(Math.round(shift))} days ${shift >= 0 ? "later" : "earlier"}).`);
+      const shift = Math.round(h.b) - Math.round(h.a);
+      const shiftTxt = shift === 0 ? "about the same" : `${Math.abs(shift)} day${Math.abs(shift) === 1 ? "" : "s"} ${shift > 0 ? "later" : "earlier"}`;
+      parts.push(`Typical date: <b>${idxLabel(Math.round(h.a))}</b> in ${h.aLab} vs. <b>${idxLabel(Math.round(h.b))}</b> in ${h.bLab} (${shiftTxt}).`);
     }
     if (reg) parts.push(`Trend: <b>${Math.abs(reg.slope * 10).toFixed(1)} days ${reg.slope >= 0 ? "later" : "earlier"} per decade</b>.`);
     const cur = marks.find((mk) => mk.y === CY);
     if (cur) {
       const v = usable(cur);
       const bl = avg(pts.filter((p) => baseline.includes(p.x)).map((p) => p.v));
-      if (v !== null) parts.push(`${CY}: <b>${idxLabel(v)}</b>${isNum(bl) ? ` — ${Math.abs(Math.round(v - bl))} days ${v >= bl ? "later" : "earlier"} than the ${baseline.length}-year average (${idxLabel(Math.round(bl))})` : ""}.`);
+      if (v !== null) parts.push(`${CY}: <b>${idxLabel(v)}</b>${isNum(bl) ? ` — ${Math.round(v - Math.round(bl)) === 0 ? "right on" : `${Math.abs(v - Math.round(bl))} days ${v > Math.round(bl) ? "later" : "earlier"} than`} the ${baseline.length}-year average (${idxLabel(Math.round(bl))})`.replace("right on the", "right at the") : ""}.`);
       else parts.push(`${CY}: not reached yet${metric === "last90" ? " (summer still possible)" : ""}.`);
     }
     const missing = marks.filter((mk) => mk.complete && mk[metric] === null).map((mk) => mk.y);
