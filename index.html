@@ -73,6 +73,25 @@
     <details><summary>Table of all autumn markers</summary><div class="table-scroll"><table id="fallTable"></table></div></details>
   </section>
 
+  <!-- Hot days -->
+  <section class="card">
+    <div class="row-head">
+      <h2>Hot days per year</h2>
+      <div class="controls">
+        <label>High of
+          <select id="hotThresh">
+            <option value="90" selected>90°F or more</option>
+            <option value="95">95°F or more</option>
+            <option value="100">100°F or more</option>
+          </select>
+        </label>
+      </div>
+    </div>
+    <p class="summary" id="hotSummary"></p>
+    <div class="chart-box"><canvas id="hotChart" aria-label="Number of hot days per year"></canvas></div>
+    <details><summary>Table</summary><div class="table-scroll"><table id="hotTable"></table></div></details>
+  </section>
+
   <!-- Long-term -->
   <section class="card">
     <div class="row-head">

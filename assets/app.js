@@ -447,6 +447,67 @@
       years.slice().reverse().map((y) => `<tr><td>${y}</td>${entries.map((e) => `<td>${cell(seasonMark(e, y, thresh))}</td>`).join("")}</tr>`).join("") + `</tbody>`;
   }
 
+  // ---------- section: hot days per year ----------
+  function hotStats(y, t, uptoIdx = 364) {
+    let count = 0, streak = 0, best = 0, first = null, last = null, days = 0;
+    for (let i = 0; i <= uptoIdx; i++) {
+      const v = grid[y].hi[i];
+      if (!isNum(v)) { streak = 0; continue; }
+      days++;
+      if (v >= t) { count++; streak++; best = Math.max(best, streak); if (first === null) first = i; last = i; }
+      else streak = 0;
+    }
+    // Feb 29 isn't in the grid; count it directly
+    const leap = byDate.get(iso(y, 2, 29));
+    if (leap && leap.hi >= t && uptoIdx >= idx365(2, 28)) count++;
+    return { count, best, first, last, days };
+  }
+  function renderHot() {
+    const t = +$("hotThresh").value;
+    const lastRow = rows[rows.length - 1];
+    const stats = years.map((y) => ({ y, ...hotStats(y, t) }));
+    const full = stats.filter((s) => s.y < CY && s.days >= 360);
+    const reg = linreg(full.map((s) => s.y), full.map((s) => s.count));
+    const h = halves(full.map((s) => ({ x: s.y, v: s.count })));
+    const parts = [];
+    if (h) parts.push(`Average per year: <b>${Math.round(h.a)} days</b> in ${h.aLab} vs. <b>${Math.round(h.b)} days</b> in ${h.bLab} (${signed(Math.round(h.b) - Math.round(h.a))}).`);
+    if (reg) parts.push(`Trend: <b>${signed(reg.slope * 10, 1)} days per decade</b>.`);
+    if (full.length) {
+      const most = full.reduce((a, b) => (b.count > a.count ? b : a)), least = full.reduce((a, b) => (b.count < a.count ? b : a));
+      parts.push(`Most: ${most.count} in ${most.y}. Fewest: ${least.count} in ${least.y}.`);
+    }
+    const cur = stats.find((s) => s.y === CY);
+    if (cur && lastRow && lastRow.y === CY) {
+      const upto = idx365(lastRow.m, lastRow.d);
+      const prior = full.filter((s) => baseline.includes(s.y)).map((s) => hotStats(s.y, t, upto).count);
+      const typ = avg(prior);
+      const rank = prior.filter((c) => c > cur.count).length + 1;
+      parts.push(`${CY} so far: <b>${cur.count} days</b> through ${MONTHS[lastRow.m - 1]} ${lastRow.d}${isNum(typ) ? `, vs. ${Math.round(typ)} by this date in a typical year (${rank === 1 ? "the most" : ordinal(rank) + " most"} of the last ${prior.length + 1} years by this date)` : ""}.`);
+    }
+    $("hotSummary").innerHTML = parts.join(" ");
+
+    const color = css("--high"), xs = stats.map((s) => s.y);
+    const base = chartBase();
+    base.plugins.legend.display = false;
+    base.scales.y.beginAtZero = true;
+    base.scales.y.title = { display: true, text: `Days with a high ≥ ${t}°F`, color: css("--text-2") };
+    base.plugins.tooltip.filter = (c) => c.datasetIndex === 0;
+    base.plugins.tooltip.callbacks = { label: (c) => { const s = stats[c.dataIndex]; return ` ${s.count} days${s.y === CY ? " so far" : ""} · longest streak ${s.best}`; } };
+    draw("hotChart", {
+      type: "bar",
+      data: {
+        labels: xs,
+        datasets: [
+          { label: "Hot days", data: stats.map((s) => s.count), backgroundColor: stats.map((s) => (s.y === CY ? color + "88" : color)), borderRadius: 4, borderSkipped: "start", maxBarThickness: 28 },
+          { type: "line", ...trendSet("Trend", xs, reg, css("--text-2")) },
+        ],
+      },
+      options: base,
+    });
+    $("hotTable").innerHTML = `<thead><tr><th>Year</th><th>Days ≥ ${t}°F</th><th>Longest streak</th><th>First</th><th>Last</th></tr></thead><tbody>` +
+      stats.slice().reverse().map((s) => `<tr><td>${s.y}${s.y === CY ? " (so far)" : ""}</td><td>${s.count}</td><td>${s.best ? s.best + " days" : "—"}</td><td>${s.first === null ? "—" : idxLabel(s.first)}</td><td>${s.last === null ? "—" : idxLabel(s.last)}</td></tr>`).join("") + `</tbody>`;
+  }
+
   // ---------- section: long-term ----------
   function seasonValue(y, season) {
     let picks;
@@ -588,7 +649,7 @@
 
   // ---------- boot ----------
   function renderAll() {
-    renderToday(); renderOtd(); renderSeason("spring"); renderSeason("fall"); renderTrend(); renderHeat(); renderLog();
+    renderToday(); renderOtd(); renderSeason("spring"); renderSeason("fall"); renderHot(); renderTrend(); renderHeat(); renderLog();
   }
 
   async function boot() {
@@ -604,6 +665,7 @@
     }
     setupOtd(); setupSeason("spring"); setupSeason("fall"); setupHeat(); setupLog();
     $("trendSeason").addEventListener("change", renderTrend);
+    $("hotThresh").addEventListener("change", renderHot);
     // Default "on this day" to today; Halloween is one click away.
     otd = { m: todayParts.m, d: todayParts.d };
     $("otdMonth").value = otd.m; $("otdMonth").dispatchEvent(new Event("change"));
