@@ -14,6 +14,7 @@ autumn cool-downs arrive each year**.
 | **On this day, every year** | Pick any date (Halloween, Christmas, … one click) and see the recorded temperature range (low to high) on that date for every year, with trend lines and a table. |
 | **When does spring warm-up arrive?** | The date warm weather arrived each year, with a trend in days per decade. Five measures: a sustained warm-up (first 7-day stretch with an average at or above a temperature you choose, 70°F by default), last freeze, and the first 80°F+, 90°F+ and 100°F+ highs. |
 | **When does autumn arrive?** | The date autumn arrived each year, with a trend in days per decade. Four measures: a sustained cool-down (first 7-day stretch with an average below a temperature you choose, 70°F by default), last 90°F+ day, first low ≤ 50°F, first freeze. |
+| **How long does winter last?** | For each winter (July to June): when winter weather set in and ended, how long that lasted, the total number of winter days, and the longest unbroken cold stretch. A winter day is one whose daily average is 50°F or colder (adjustable). |
 | **Hot days per year** | How many days each year reached 90°F (or 95°F / 100°F), with the trend, the longest streak, and how this year compares with other years by the same date. |
 | **Long-term averages** | Yearly, seasonal (including Sep–Nov autumn) or October average temperature, shown as warmer or cooler than normal. |
 | **Every day vs. normal** | A heatmap with one row per year and one column per day, so warm Octobers and late summers stand out. |

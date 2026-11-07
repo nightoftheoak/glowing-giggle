@@ -202,12 +202,13 @@
     borderColor: color, borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 0, fill: false,
   });
 
-  function halves(pairs) { // pairs: [{x, v}] over completed years -> early vs late decade averages
-    const done = pairs.filter((p) => p.x < CY && isNum(p.v));
+  // pairs: [{x, v}] -> averages of the earlier and later half of the completed entries
+  function halves(pairs, isDone = (p) => p.x < CY, lab = (p) => p.x) {
+    const done = pairs.filter((p) => isDone(p) && isNum(p.v));
     if (done.length < 6) return null;
     const mid = Math.floor(done.length / 2);
     const a = done.slice(0, mid), b = done.slice(mid);
-    return { a: avg(a.map((p) => p.v)), b: avg(b.map((p) => p.v)), aLab: `${a[0].x}–${a[a.length - 1].x}`, bLab: `${b[0].x}–${b[b.length - 1].x}` };
+    return { a: avg(a.map((p) => p.v)), b: avg(b.map((p) => p.v)), aLab: `${lab(a[0])}–${lab(a[a.length - 1])}`, bLab: `${lab(b[0])}–${lab(b[b.length - 1])}` };
   }
 
   // ---------- section: on this day ----------
@@ -460,6 +461,143 @@
       years.slice().reverse().map((y) => `<tr><td>${y}</td>${entries.map((e) => `<td>${cell(seasonMark(e, y, thresh))}</td>`).join("")}</tr>`).join("") + `</tbody>`;
   }
 
+  // ---------- section: how long winter lasts ----------
+  // A winter season runs Jul 1 of year Y to Jun 30 of Y+1. Index 0 = Jul 1; 184 = Jan 1.
+  const JUL1 = idx365(7, 1);
+  const seasonLabel = (i) => idxLabel((i + JUL1) % 365);
+  const winterName = (y) => `${y}–${String((y + 1) % 100).padStart(2, "0")}`;
+  function seasonMeans(y) {
+    const out = new Array(365).fill(NaN);
+    for (let i = 0; i < 365; i++) {
+      const j = i + JUL1;
+      const g = j < 365 ? grid[y] : grid[y + 1];
+      if (g) out[i] = g.mean[j % 365];
+    }
+    return out;
+  }
+  function winterStats(y, t) {
+    const v = seasonMeans(y), cold = (x) => isNum(x) && x <= t;
+    const weekAvg = (i) => { const w = v.slice(i, i + 7); return w.length === 7 && w.every(isNum) ? avg(w) : NaN; };
+    let start = null, end = null;
+    for (let i = 0; i <= 358; i++) if (weekAvg(i) <= t) { start = i; break; }
+    if (start !== null) for (let i = 358; i >= start; i--) if (weekAvg(i) <= t) { end = i + 6; break; }
+    let days = 0, run = 0, best = 0, bestAt = null;
+    for (let i = 0; i < 365; i++) {
+      if (cold(v[i])) { days++; run++; if (run > best) { best = run; bestAt = i - run + 1; } } else run = 0;
+    }
+    const last = rows.length ? rows[rows.length - 1].date : "";
+    const complete = last >= iso(y + 1, 6, 30);
+    return { y, start, end, length: start === null ? null : end - start + 1, days, best, bestAt, complete };
+  }
+  const WINTER_VIEWS = {
+    span: "When it starts and ends",
+    length: "Length (start to end)",
+    days: "Total winter days",
+    best: "Longest cold stretch",
+  };
+  function setupWinter() {
+    $("winterView").innerHTML = Object.entries(WINTER_VIEWS).map(([k, l]) => `<option value="${k}">${l}</option>`).join("");
+    const sel = $("winterThresh");
+    for (let t = 40; t <= 55; t++) sel.insertAdjacentHTML("beforeend", `<option value="${t}"${t === 50 ? " selected" : ""}>${t}°F</option>`);
+    $("winterView").addEventListener("change", renderWinter);
+    sel.addEventListener("change", renderWinter);
+  }
+  function renderWinter() {
+    const t = +$("winterThresh").value, view = $("winterView").value;
+    $("winterDef").textContent = `A winter day is one whose daily average, (high + low) ÷ 2, is ${t}°F or colder` +
+      ` (for ${t}°F, think highs around ${t + 9}°F and lows around ${t - 9}°F). Winter starts on the first day of the first week averaging ${t}°F or colder` +
+      ` and ends on the last day of the last such week before July. Because Texas winters come and go, total winter days counts every winter day of the season, including cold snaps outside that span.`;
+    const seasons = years.filter((y) => grid[y] && (grid[y + 1] || y + 1 === CY || y === CY)).map((y) => winterStats(y, t));
+    const done = (s) => s.complete;
+    const valOf = { length: (s) => s.length, days: (s) => s.days, best: (s) => s.best };
+    const days = (n) => `${Math.abs(Math.round(n))} day${Math.abs(Math.round(n)) === 1 ? "" : "s"}`;
+    const parts = [];
+    const fin = seasons.filter(done);
+    const inBase = (s) => baseline.includes(s.y + 1);
+    const cur = seasons.find((s) => !s.complete);
+
+    if (view === "span") {
+      const hs = halves(seasons.map((s) => ({ x: s.y, v: s.start, s })), (p) => p.s.complete, (p) => winterName(p.x).slice(0, 4));
+      const he = halves(seasons.map((s) => ({ x: s.y, v: s.end, s })), (p) => p.s.complete, (p) => winterName(p.x).slice(0, 4));
+      if (hs && he) {
+        const ds = Math.round(hs.b) - Math.round(hs.a), de = Math.round(he.b) - Math.round(he.a);
+        parts.push(`Typical winter: <b>${seasonLabel(Math.round(hs.a))} to ${seasonLabel(Math.round(he.a))}</b> in the winters starting ${hs.aLab} vs. <b>${seasonLabel(Math.round(hs.b))} to ${seasonLabel(Math.round(he.b))}</b> starting ${hs.bLab}` +
+          ` — starting ${ds === 0 ? "at about the same time" : days(ds) + (ds > 0 ? " later" : " earlier")} and ending ${de === 0 ? "at about the same time" : days(de) + (de > 0 ? " later" : " earlier")}.`);
+      }
+      const never = fin.filter((s) => s.start === null).map((s) => winterName(s.y));
+      if (never.length) parts.push(`<span class="note">No week averaged ${t}°F or colder in: ${never.join(", ")}.</span>`);
+    } else {
+      const f = valOf[view];
+      const pts = seasons.map((s) => ({ x: s.y, v: f(s), s }));
+      const h = halves(pts, (p) => p.s.complete, (p) => winterName(p.x).slice(0, 4));
+      const reg = linreg(fin.map((s) => s.y), fin.map(f));
+      if (h) parts.push(`Average: <b>${days(h.a)}</b> in the winters starting ${h.aLab} vs. <b>${days(h.b)}</b> starting ${h.bLab} (${signed(Math.round(h.b) - Math.round(h.a))} days).`);
+      if (reg) parts.push(`Trend: <b>${signed(reg.slope * 10, 1)} days per decade</b>.`);
+      const valid = fin.filter((s) => isNum(f(s)));
+      if (valid.length) {
+        const most = valid.reduce((a, b) => (f(b) > f(a) ? b : a)), least = valid.reduce((a, b) => (f(b) < f(a) ? b : a));
+        const [hiW, loW] = view === "days" ? ["Most", "Fewest"] : ["Longest", "Shortest"];
+        parts.push(`${hiW}: ${winterName(most.y)} (${days(f(most))}). ${loW}: ${winterName(least.y)} (${days(f(least))}).`);
+      }
+    }
+    const lastDone = fin[fin.length - 1];
+    if (lastDone) {
+      const bl = fin.filter(inBase);
+      const avgLen = avg(bl.map((s) => s.length)), avgDays = avg(bl.map((s) => s.days));
+      parts.push(`Last winter (${winterName(lastDone.y)}): ${lastDone.start === null ? "never set in" : `${seasonLabel(lastDone.start)} to ${seasonLabel(lastDone.end)}, ${days(lastDone.length)}`}` +
+        ` with ${days(lastDone.days)} of winter weather and a longest stretch of ${days(lastDone.best)}` +
+        `${isNum(avgLen) ? ` (average for winters ending ${baselineName()}: ${days(avgLen)} long, ${days(avgDays)} of winter weather)` : ""}.`);
+    }
+    if (cur) parts.push(`This winter (${winterName(cur.y)}): ${cur.start === null ? "hasn't set in yet" : `set in ${seasonLabel(cur.start)}; ${days(cur.days)} of winter weather so far`}.`);
+    $("winterSummary").innerHTML = parts.join(" ");
+
+    // chart
+    const color = css("--low");
+    const labels = seasons.map((s) => winterName(s.y));
+    const base = chartBase();
+    base.plugins.legend.display = false;
+    let datasets;
+    if (view === "span") {
+      const fs = fin.filter((s) => s.start !== null);
+      const regS = linreg(fs.map((s) => s.y), fs.map((s) => s.start));
+      const regE = linreg(fs.map((s) => s.y), fs.map((s) => s.end));
+      const ys = seasons.map((s) => s.y);
+      base.scales.y.beginAtZero = false;
+      base.scales.y.ticks.callback = (v) => seasonLabel(Math.round(v));
+      base.scales.y.ticks.stepSize = 14;
+      base.plugins.tooltip.filter = (c) => c.datasetIndex === 0;
+      base.plugins.tooltip.callbacks = { label: (c) => {
+        const s = seasons[c.dataIndex];
+        return s.start === null ? " Winter never set in" : ` ${seasonLabel(s.start)} to ${seasonLabel(s.end)}${s.complete ? "" : " (so far)"} · ${s.length} days, ${s.days} winter days`;
+      } };
+      datasets = [
+        { label: "Winter", data: seasons.map((s) => (s.start === null ? null : [s.start, s.complete ? s.end : Math.max(s.end ?? s.start, s.start)])),
+          backgroundColor: seasons.map((s) => (s.complete ? color : color + "66")), borderRadius: 4, borderSkipped: false, maxBarThickness: 18 },
+        { type: "line", ...trendSet("Start trend", ys, regS, css("--text-2")) },
+        { type: "line", ...trendSet("End trend", ys, regE, css("--text-2")) },
+      ];
+    } else {
+      const f = valOf[view];
+      const reg = linreg(fin.map((s) => s.y), fin.map(f));
+      base.scales.y.beginAtZero = true;
+      base.scales.y.title = { display: true, text: WINTER_VIEWS[view] + " (days)", color: css("--text-2") };
+      base.plugins.tooltip.filter = (c) => c.datasetIndex === 0;
+      base.plugins.tooltip.callbacks = { label: (c) => ` ${c.parsed.y} days${seasons[c.dataIndex].complete ? "" : " so far"}` };
+      datasets = [
+        { label: WINTER_VIEWS[view], data: seasons.map((s) => f(s) ?? 0), backgroundColor: seasons.map((s) => (s.complete ? color : color + "66")), borderRadius: 4, borderSkipped: "start", maxBarThickness: 18 },
+        { type: "line", ...trendSet("Trend", seasons.map((s) => s.y), reg, css("--text-2")) },
+      ];
+    }
+    draw("winterChart", { type: "bar", data: { labels, datasets }, options: base });
+
+    $("winterTable").innerHTML = `<thead><tr><th>Winter</th><th>Starts</th><th>Ends</th><th>Length</th><th>Winter days</th><th>Longest stretch</th></tr></thead><tbody>` +
+      seasons.slice().reverse().map((s) => {
+        const so = s.complete ? "" : " (so far)";
+        return `<tr><td>${winterName(s.y)}${so}</td><td>${s.start === null ? "—" : seasonLabel(s.start)}</td><td>${s.end === null ? "—" : seasonLabel(s.end)}</td>` +
+          `<td>${s.length === null ? "—" : s.length + " days"}</td><td>${s.days}</td><td>${s.best ? `${s.best} days (from ${seasonLabel(s.bestAt)})` : "—"}</td></tr>`;
+      }).join("") + `</tbody>`;
+  }
+
   // ---------- section: hot days per year ----------
   function hotStats(y, t, uptoIdx = 364) {
     let count = 0, streak = 0, best = 0, first = null, last = null, days = 0;
@@ -662,7 +800,7 @@
 
   // ---------- boot ----------
   function renderAll() {
-    renderToday(); renderOtd(); renderSeason("spring"); renderSeason("fall"); renderHot(); renderTrend(); renderHeat(); renderLog();
+    renderToday(); renderOtd(); renderSeason("spring"); renderSeason("fall"); renderWinter(); renderHot(); renderTrend(); renderHeat(); renderLog();
   }
 
   async function boot() {
@@ -685,7 +823,7 @@
       computeNormals();
       renderAll();
     });
-    setupOtd(); setupSeason("spring"); setupSeason("fall"); setupHeat(); setupLog();
+    setupOtd(); setupSeason("spring"); setupSeason("fall"); setupWinter(); setupHeat(); setupLog();
     $("trendSeason").addEventListener("change", renderTrend);
     $("hotThresh").addEventListener("change", renderHot);
     // Default "on this day" to today; Halloween is one click away.

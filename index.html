@@ -74,6 +74,21 @@
     <details><summary>Table of all autumn markers</summary><div class="table-scroll"><table id="fallTable"></table></div></details>
   </section>
 
+  <!-- Winter -->
+  <section class="card">
+    <div class="row-head">
+      <h2>How long does winter last?</h2>
+      <div class="controls">
+        <label>Show <select id="winterView"></select></label>
+        <label>Winter day = daily avg ≤ <select id="winterThresh"></select></label>
+      </div>
+    </div>
+    <p class="note" id="winterDef"></p>
+    <p class="summary" id="winterSummary"></p>
+    <div class="chart-box"><canvas id="winterChart" aria-label="Winter start, end and length by season"></canvas></div>
+    <details><summary>Table of every winter</summary><div class="table-scroll"><table id="winterTable"></table></div></details>
+  </section>
+
   <!-- Hot days -->
   <section class="card">
     <div class="row-head">
