@@ -45,7 +45,7 @@ CITY = "Plano, TX"
 TZ = "America/Chicago"
 PRIMARY = {"sid": "03927 1", "code": "KDFW", "name": "DFW International Airport", "lat": 32.8998, "lon": -97.0403}
 FALLBACK = {"sid": "13960 1", "code": "KDAL", "name": "Dallas Love Field", "lat": 32.8519, "lon": -96.8555}
-BACKFILL_START = dt.date.fromisoformat(os.environ.get("BACKFILL_START", "1990-01-01"))
+BACKFILL_START = dt.date.fromisoformat(os.environ.get("BACKFILL_START", "1980-01-01"))
 PROVISIONAL_DAYS = 7
 
 ROOT = Path(__file__).resolve().parent.parent

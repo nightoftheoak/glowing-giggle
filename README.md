@@ -1,7 +1,7 @@
 # Plano, TX temperature record
 
 A small weather dashboard that records the real daily high and low temperature (°F) for the Dallas–Fort Worth
-area from 1990 onward, keeps that record permanently in this repository, and compares each day with normal.
+area from 1980 onward, keeps that record permanently in this repository, and compares each day with normal.
 It is built to show how local temperatures are changing over time, and especially **when spring heat and
 autumn cool-downs arrive each year**.
 
@@ -26,12 +26,12 @@ autumn cool-downs arrive each year**.
   south-west of Plano. Data comes from NOAA through the free [Applied Climate Information System](https://www.rcc-acis.org/)
   (ACIS), which needs no API key.
 - **Why DFW:** Plano has no official station of its own. The nearest official station, McKinney airport (KTKI), only has
-  records from 1998, and the stations that cover the 1990s near Plano don't line up with it. Using one station for the
+  records from 1998, and the stations that cover earlier years near Plano don't line up with it. Using one station for the
   whole record keeps long-term trends free of false jumps from switching instruments. DFW's overnight lows run a few
   degrees warmer than north Collin County's, but that offset is steady, so the trends still hold.
 - **Gaps:** on any day DFW didn't report, the Dallas Love Field (KDAL) reading is used, and the row's `source` column
   says `KDAL (gap fill for KDFW)`.
-- `scripts/update_data.py` (Python standard library only) fills in every day from **1990-01-01** to yesterday on its
+- `scripts/update_data.py` (Python standard library only) fills in every day from **1980-01-01** to yesterday on its
   first run. After that it adds new days.
 - **Preservation:** stations sometimes correct a report within a few days, so the last 7 days are **provisional** and
   re-checked on every run. Older days are **final** and the script never changes them again.
@@ -46,7 +46,7 @@ autumn cool-downs arrive each year**.
 ## Setup
 
 1. **Enable the daily update:** on GitHub, open the **Actions** tab, select *Update Plano temperatures* and click
-   **Run workflow** once. The first run backfills everything from 1990, which takes about a minute. After that it runs daily.
+   **Run workflow** once. The first run backfills everything from 1980, which takes about a minute. After that it runs daily.
    Scheduled runs happen only on the repository's default branch, and Actions needs write permission
    (Settings → Actions → General → Workflow permissions → *Read and write*).
 2. **View the dashboard:**
