@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
-"""Fetch and preserve daily temperatures for Plano, TX.
+"""Fetch and preserve observed daily temperatures for Plano, TX.
 
 Run daily (the GitHub Actions workflow does this). Standard library only.
 
-What it does
-------------
-1. Loads the existing record from data/plano_daily.csv.
-2. Backfills any missing days from BACKFILL_START up to yesterday using the
-   Open-Meteo historical archive (ERA5 reanalysis).
-3. Days the archive has not published yet (it lags ~5 days) are filled from
-   Open-Meteo's forecast API "past days" and marked `provisional`.
-4. Provisional days are upgraded to `final` once the archive has them.
-   Final days are never overwritten, so the record is preserved as written.
-5. Writes data/plano_daily.csv (canonical) and data/plano_daily.js (the same
-   data for the dashboard, so index.html works even when opened as a file).
+Source
+------
+Recorded daily high and low temperatures from NOAA weather stations, served by
+the Applied Climate Information System (ACIS, data.rcc-acis.org). No API key.
 
-All temperatures are degrees Fahrenheit.
+- Primary:  McKinney National Airport (KTKI), the nearest official NWS station
+            to Plano (about 13 miles north-east).
+- Gap fill: Dallas Love Field (KDAL), used only for days KTKI did not report.
+            Those rows say so in the `source` column.
+
+How the record is kept
+----------------------
+- The first run fills every day from BACKFILL_START to yesterday.
+- Days from the last 7 days are `provisional`: stations sometimes correct
+  their reports, so these are re-fetched on every run.
+- Older days are `final` and never rewritten, so the record is preserved.
+- `mean_f` is the daily average NOAA uses: (high + low) / 2.
+
+Outputs data/plano_daily.csv (canonical) and data/plano_daily.js (same data
+for the dashboard, so index.html also works when opened as a local file).
+All temperatures are degrees Fahrenheit, as recorded (whole degrees).
 """
 from __future__ import annotations
 
@@ -25,66 +33,55 @@ import json
 import os
 import sys
 import time
-import urllib.parse
 import urllib.request
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 CITY = "Plano, TX"
-LAT = 33.0198
-LON = -96.6989
 TZ = "America/Chicago"
-# 20 full years before 2026. Set BACKFILL_START=1940-01-01 for the full archive.
+PRIMARY = {"sid": "53914 1", "code": "KTKI", "name": "McKinney National Airport", "lat": 33.1772, "lon": -96.5905}
+FALLBACK = {"sid": "13960 1", "code": "KDAL", "name": "Dallas Love Field", "lat": 32.8519, "lon": -96.8555}
 BACKFILL_START = dt.date.fromisoformat(os.environ.get("BACKFILL_START", "2006-01-01"))
+PROVISIONAL_DAYS = 7
 
 ROOT = Path(__file__).resolve().parent.parent
 CSV_PATH = ROOT / "data" / "plano_daily.csv"
 JS_PATH = ROOT / "data" / "plano_daily.js"
 FIELDS = ["date", "high_f", "low_f", "mean_f", "status", "source"]
-
-ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
-FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
-DAILY_VARS = "temperature_2m_max,temperature_2m_min,temperature_2m_mean"
+ACIS_URL = "https://data.rcc-acis.org/StnData"
 
 
-def get_json(url: str, params: dict) -> dict:
-    full = f"{url}?{urllib.parse.urlencode(params)}"
+def fetch_station(sid: str, start: dt.date, end: dt.date) -> dict[str, tuple[float, float]]:
+    """Daily (high, low) in °F for one station; days with a missing value are left out."""
+    body = json.dumps({"sid": sid, "sdate": start.isoformat(), "edate": end.isoformat(), "elems": "maxt,mint"}).encode()
     last_err: Exception | None = None
     for attempt in range(5):
         try:
-            req = urllib.request.Request(full, headers={"User-Agent": "plano-temperature-record/1.0"})
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                return json.load(resp)
-        except Exception as err:  # network hiccup or rate limit: back off and retry
+            req = urllib.request.Request(ACIS_URL, data=body, headers={
+                "Content-Type": "application/json", "User-Agent": "plano-temperature-record/2.0"})
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                payload = json.load(resp)
+            break
+        except Exception as err:  # network hiccup: back off and retry
             last_err = err
             time.sleep(2 ** attempt * 2)
-    raise RuntimeError(f"Request failed: {full}: {last_err}")
+    else:
+        raise RuntimeError(f"ACIS request failed for {sid}: {last_err}")
+    if "error" in payload:
+        raise RuntimeError(f"ACIS error for {sid}: {payload['error']}")
 
+    def num(v: str) -> float | None:
+        v = (v or "").strip().rstrip("ASTE")  # drop any trailing data flags
+        try:
+            return float(v)
+        except ValueError:
+            return None  # "M" = missing
 
-def base_params() -> dict:
-    return {
-        "latitude": LAT,
-        "longitude": LON,
-        "daily": DAILY_VARS,
-        "temperature_unit": "fahrenheit",
-        "timezone": TZ,
-    }
-
-
-def parse_daily(payload: dict) -> dict[str, tuple[float, float, float]]:
-    d = payload.get("daily") or {}
     out = {}
-    for day, hi, lo, mean in zip(
-        d.get("time", []),
-        d.get("temperature_2m_max", []),
-        d.get("temperature_2m_min", []),
-        d.get("temperature_2m_mean", []),
-    ):
-        if hi is None or lo is None:
-            continue
-        if mean is None:
-            mean = (hi + lo) / 2
-        out[day] = (round(hi, 1), round(lo, 1), round(mean, 1))
+    for day, hi, lo in payload.get("data", []):
+        hi, lo = num(hi), num(lo)
+        if hi is not None and lo is not None and hi >= lo:
+            out[day] = (hi, lo)
     return out
 
 
@@ -92,7 +89,15 @@ def load_record() -> dict[str, dict]:
     if not CSV_PATH.exists():
         return {}
     with CSV_PATH.open(newline="") as fh:
-        return {row["date"]: row for row in csv.DictReader(fh) if row.get("date")}
+        rows = {row["date"]: row for row in csv.DictReader(fh) if row.get("date")}
+    # One-time migration: the first version stored modelled (Open-Meteo/ERA5) values.
+    # Those are replaced by station observations; git history keeps the old file.
+    modelled = [d for d, r in rows.items() if r.get("source", "").startswith("open-meteo")]
+    if modelled:
+        print(f"Replacing {len(modelled)} modelled days with station observations.", file=sys.stderr)
+        for d in modelled:
+            del rows[d]
+    return rows
 
 
 def save_record(record: dict[str, dict]) -> None:
@@ -104,17 +109,20 @@ def save_record(record: dict[str, dict]) -> None:
         for r in rows:
             w.writerow({f: r.get(f, "") for f in FIELDS})
 
+    sources = sorted({r["source"] for r in rows})
     compact = [
-        [r["date"], float(r["high_f"]), float(r["low_f"]), float(r["mean_f"]), 1 if r["status"] == "provisional" else 0]
+        [r["date"], float(r["high_f"]), float(r["low_f"]), float(r["mean_f"]),
+         1 if r["status"] == "provisional" else 0, sources.index(r["source"])]
         for r in rows
     ]
     meta = {
         "city": CITY,
-        "lat": LAT,
-        "lon": LON,
         "timezone": TZ,
+        "station": PRIMARY,
+        "fallback": FALLBACK,
+        "sources": sources,
         "updated": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "columns": ["date", "high_f", "low_f", "mean_f", "provisional"],
+        "columns": ["date", "high_f", "low_f", "mean_f", "provisional", "source_index"],
     }
     JS_PATH.write_text(
         "// Generated by scripts/update_data.py - do not edit by hand.\n"
@@ -123,12 +131,11 @@ def save_record(record: dict[str, dict]) -> None:
     )
 
 
-def put(record: dict, day: str, vals: tuple, status: str, source: str) -> bool:
+def put(record: dict, day: str, hi: float, lo: float, status: str, source: str) -> bool:
     existing = record.get(day)
     if existing and existing["status"] == "final":
         return False  # preserved history is never rewritten
-    hi, lo, mean = vals
-    new = {"date": day, "high_f": f"{hi:.1f}", "low_f": f"{lo:.1f}", "mean_f": f"{mean:.1f}",
+    new = {"date": day, "high_f": f"{hi:.0f}", "low_f": f"{lo:.0f}", "mean_f": f"{(hi + lo) / 2:.1f}",
            "status": status, "source": source}
     if existing == new:
         return False
@@ -139,10 +146,9 @@ def put(record: dict, day: str, vals: tuple, status: str, source: str) -> bool:
 def main() -> int:
     today = dt.datetime.now(ZoneInfo(TZ)).date()
     yesterday = today - dt.timedelta(days=1)
+    final_before = today - dt.timedelta(days=PROVISIONAL_DAYS)
     record = load_record()
-    changed = 0
 
-    # Which days still need a final value?
     needed = []
     d = BACKFILL_START
     while d <= yesterday:
@@ -150,30 +156,32 @@ def main() -> int:
         if not r or r["status"] != "final":
             needed.append(d)
         d += dt.timedelta(days=1)
+    if not needed:
+        print("Record already complete.")
+        save_record(record)
+        return 0
 
-    # Fetch from the archive in one-year chunks covering the needed days.
-    if needed:
-        start = needed[0]
-        while start <= needed[-1]:
-            end = min(dt.date(start.year, 12, 31), yesterday)
-            if any(start <= n <= end for n in needed):
-                params = base_params() | {"start_date": start.isoformat(), "end_date": end.isoformat()}
-                print(f"archive {start} .. {end}", file=sys.stderr)
-                for day, vals in parse_daily(get_json(ARCHIVE_URL, params)).items():
-                    changed += put(record, day, vals, "final", "open-meteo-archive")
-                time.sleep(1)
-            start = end + dt.timedelta(days=1)
+    start, end = needed[0], yesterday
+    print(f"Fetching {PRIMARY['code']} and {FALLBACK['code']} for {start} .. {end}", file=sys.stderr)
+    primary = fetch_station(PRIMARY["sid"], start, end)
+    fallback = fetch_station(FALLBACK["sid"], start, end)
 
-    # Fill the archive's recent gap with provisional values.
-    params = base_params() | {"past_days": 14, "forecast_days": 1}
-    for day, vals in parse_daily(get_json(FORECAST_URL, params)).items():
-        dd = dt.date.fromisoformat(day)
-        if BACKFILL_START <= dd <= yesterday:
-            changed += put(record, day, vals, "provisional", "open-meteo-forecast")
+    changed = filled = missing = 0
+    for day in needed:
+        key = day.isoformat()
+        status = "final" if day < final_before else "provisional"
+        if key in primary:
+            changed += put(record, key, *primary[key], status, PRIMARY["code"])
+        elif key in fallback:
+            changed += put(record, key, *fallback[key], status, f"{FALLBACK['code']} (gap fill)")
+            filled += 1
+        else:
+            missing += 1
 
     save_record(record)
     finals = sum(1 for r in record.values() if r["status"] == "final")
-    print(f"{changed} day(s) added/updated; {len(record)} days on record ({finals} final).")
+    print(f"{changed} day(s) added/updated ({filled} gap-filled from {FALLBACK['code']}, {missing} unavailable); "
+          f"{len(record)} days on record ({finals} final).")
     return 0
 
 

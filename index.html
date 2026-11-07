@@ -18,7 +18,7 @@
   <div id="empty" class="card notice" hidden>
     <strong>No data on record yet.</strong> Run the <em>Update Plano temperatures</em> GitHub Action
     (Actions tab → Run workflow), or run <code>python scripts/update_data.py</code> locally.
-    The first run backfills 20 years of daily highs and lows.
+    The first run backfills 20 years of recorded daily highs and lows.
   </div>
 
   <!-- Today -->
@@ -39,7 +39,7 @@
       </div>
     </div>
     <p class="summary" id="otdSummary"></p>
-    <div class="chart-box"><canvas id="otdChart" aria-label="High and low temperature on the selected date, by year"></canvas></div>
+    <div class="chart-box"><canvas id="otdChart" aria-label="Recorded temperature range on the selected date, by year"></canvas></div>
     <details><summary>Table</summary><div class="table-scroll"><table id="otdTable"></table></div></details>
   </section>
 
@@ -94,7 +94,7 @@
 
   <section class="card">
     <h2>Every day vs. normal</h2>
-    <p class="note">Each row is a year, each column a day. Red is warmer than the 20-year normal for that date, blue is cooler (daily mean, smoothed over 7 days). Hover for details.</p>
+    <p class="note">Each row is a year, each column a day. Red is warmer than the 20-year normal for that date, blue is cooler (daily average of the high and low, smoothed over 7 days). Hover for details.</p>
     <div class="heat-wrap"><canvas id="heat"></canvas><div id="heatTip" class="tip" hidden></div></div>
     <div class="heat-legend" id="heatLegend"></div>
   </section>
@@ -114,11 +114,14 @@
 </main>
 
 <footer class="wrap note">
-  Daily highs and lows are from the Open-Meteo historical archive (ERA5 reanalysis, ~9&nbsp;km grid centred on Plano),
-  recorded daily by this repository's GitHub Action. Rows marked “provisional” are recent estimates that are replaced once the
-  archive publishes final values (about five days later); after that, values are never changed.
-  The current reading is fetched live from Open-Meteo. “Normal” means the average for that calendar date over the 20 years
-  before the current year, smoothed over ±3 days.
+  Temperatures are the official daily high and low recorded by the National Weather Service station at McKinney National Airport
+  (KTKI), about 13 miles north-east of central Plano, retrieved from NOAA through the Applied Climate Information System (ACIS).
+  Plano has no official station of its own. On the few days KTKI didn't report, Dallas Love Field (KDAL) values are used and labelled.
+  The daily average used for warm-up and cool-down dates is NOAA's standard (high + low) ÷ 2.
+  The last 7 days are “provisional” because stations sometimes correct their reports; after that, values are never changed.
+  The current reading and today's range so far come from KTKI's hourly observations (api.weather.gov), so they can miss a brief peak
+  that the official daily high later captures. “Normal” means the average for that calendar date over the 20 years before the
+  current year, smoothed over ±3 days.
 </footer>
 
 <script src="assets/app.js"></script>

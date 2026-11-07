@@ -2,7 +2,7 @@
 (() => {
   "use strict";
 
-  const LAT = 33.0198, LON = -96.6989, TZ = "America/Chicago";
+  const TZ = "America/Chicago";
   const BASELINE_YEARS = 20;
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -30,6 +30,7 @@
   const iso = (y, m, d) => `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   const clock = (t) => { const [h, mi] = t.slice(11, 16).split(":").map(Number); return `${h % 12 || 12}:${String(mi).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`; };
+  const range = (lo, hi) => (isNum(lo) && isNum(hi) ? `${Math.round(lo)}–${Math.round(hi)}°` : "—");
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
   function linreg(xs, ys) {
@@ -51,13 +52,16 @@
   const CY = todayParts.y;
 
   // ---------- data model ----------
+  const META = window.PLANO_META || {};
+  const STATION = META.station || { code: "KTKI", name: "McKinney National Airport" };
+  const SOURCES = META.sources || [];
   let rows = [], byDate = new Map(), years = [], grid = {}, normal = null, baseline = [];
   let live = null;
 
   function ingest(raw) {
-    rows = raw.map(([date, hi, lo, mean, prov]) => {
+    rows = raw.map(([date, hi, lo, mean, prov, src]) => {
       const [y, m, d] = date.split("-").map(Number);
-      return { date, y, m, d, hi, lo, mean, prov: !!prov };
+      return { date, y, m, d, hi, lo, mean, prov: !!prov, src: SOURCES[src] || "" };
     }).sort((a, b) => (a.date < b.date ? -1 : 1));
     byDate = new Map(rows.map((r) => [r.date, r]));
     years = [...new Set(rows.map((r) => r.y))].sort((a, b) => a - b);
@@ -84,22 +88,30 @@
     return years.map((y) => ({ y, r: byDate.get(iso(y, m, d)) })).filter((o) => o.r);
   }
 
-  // ---------- live conditions ----------
+  // ---------- live conditions: hourly observations at the station (NWS) ----------
   async function fetchLive() {
-    const url = "https://api.open-meteo.com/v1/forecast?" + new URLSearchParams({
-      latitude: LAT, longitude: LON, timezone: TZ, temperature_unit: "fahrenheit",
-      current: "temperature_2m,apparent_temperature",
-      daily: "temperature_2m_max,temperature_2m_min,temperature_2m_mean",
-      past_days: 14, forecast_days: 1,
-    });
+    const start = new Date(Date.now() - 26 * 3600e3).toISOString().replace(/\.\d+Z$/, "Z");
+    const url = `https://api.weather.gov/stations/${STATION.code}/observations?start=${start}`;
     const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 8000);
+    const t = setTimeout(() => ctl.abort(), 10000);
     try {
-      const res = await fetch(url, { signal: ctl.signal });
+      const res = await fetch(url, { signal: ctl.signal, headers: { Accept: "application/geo+json" } });
       if (!res.ok) throw new Error(res.status);
-      return await res.json();
+      const json = await res.json();
+      const localDay = new Intl.DateTimeFormat("en-CA", { timeZone: TZ });
+      const obs = (json.features || [])
+        .map((f) => ({ time: new Date(f.properties.timestamp), c: f.properties.temperature && f.properties.temperature.value }))
+        .filter((o) => isNum(o.c))
+        .map((o) => ({ time: o.time, f: o.c * 9 / 5 + 32 }))
+        .sort((a, b) => b.time - a.time);
+      if (!obs.length) return null;
+      const today = obs.filter((o) => localDay.format(o.time) === todayParts.iso).map((o) => o.f);
+      return {
+        now: obs[0],
+        today: today.length ? { hi: Math.max(...today), lo: Math.min(...today), n: today.length } : null,
+      };
     } catch (e) {
-      console.warn("Live weather unavailable:", e);
+      console.warn("Live observations unavailable:", e);
       return null;
     } finally { clearTimeout(t); }
   }
@@ -116,17 +128,14 @@
       return `<span class="${cls}">${signed(diff)}°F</span> vs. normal ${deg(n)}`;
     };
 
-    let todayHi = NaN, todayLo = NaN;
-    if (live && live.current) {
-      const c = live.current;
-      tile("Right now", `${deg(c.temperature_2m)}F`, `Feels like ${deg(c.apparent_temperature)} · as of ${clock(c.time)}`);
-      const di = live.daily.time.indexOf(todayParts.iso);
-      if (di >= 0) { todayHi = live.daily.temperature_2m_max[di]; todayLo = live.daily.temperature_2m_min[di]; }
+    const vsNormalRange = (lo, hi, nl, nh) => `normal ${range(nl, nh)} · high <span class="${hi - nh >= 0.5 ? "up" : hi - nh <= -0.5 ? "down" : ""}">${signed(hi - nh)}°</span>, low <span class="${lo - nl >= 0.5 ? "up" : lo - nl <= -0.5 ? "down" : ""}">${signed(lo - nl)}°</span>`;
+    if (live) {
+      const at = live.now.time.toLocaleTimeString("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit" });
+      tile("Right now", `${deg(live.now.f)}F`, `${STATION.code} reading at ${at}`);
+      if (live.today) tile("Today so far", range(live.today.lo, live.today.hi), vsNormalRange(live.today.lo, live.today.hi, normal.lo[i], normal.hi[i]) + "<br>from hourly readings");
     } else {
-      tile("Right now", "—", "Live reading unavailable");
+      tile("Right now", "—", "Live station reading unavailable");
     }
-    tile("Today's high (forecast)", deg(todayHi), vsNormal(todayHi, normal.hi[i]));
-    tile("Today's low (forecast)", deg(todayLo), vsNormal(todayLo, normal.lo[i]));
 
     const hist = onDate(m, d).filter((o) => o.y < CY && o.y >= CY - BASELINE_YEARS);
     if (hist.length) {
@@ -134,18 +143,16 @@
       const loRec = hist.reduce((a, b) => (b.r.lo < a.r.lo ? b : a));
       tile(`Warmest ${MONTHS[m - 1]} ${d}`, `${deg(hiRec.r.hi)}F`, `in ${hiRec.y}`);
       tile(`Coldest ${MONTHS[m - 1]} ${d}`, `${deg(loRec.r.lo)}F`, `in ${loRec.y}`);
-      if (isNum(todayHi)) {
-        const all = hist.map((o) => o.r.hi).concat(todayHi).sort((a, b) => b - a);
-        const rank = all.indexOf(todayHi) + 1;
-        tile("Today's high ranks", ordinal(rank), `warmest of ${all.length} years on this date`);
-      }
     }
 
     const yest = new Date(Date.UTC(todayParts.y, m - 1, d - 1));
     const yr = byDate.get(yest.toISOString().slice(0, 10));
     if (yr) {
       const yi = idx365(yr.m, yr.d);
-      tile("Yesterday's high", deg(yr.hi), vsNormal(yr.hi, normal.hi[yi]) + (yr.prov ? " · provisional" : ""));
+      tile("Yesterday", range(yr.lo, yr.hi), vsNormalRange(yr.lo, yr.hi, normal.lo[yi], normal.hi[yi]) + (yr.prov ? " · provisional" : ""));
+      const same = onDate(yr.m, yr.d).filter((o) => o.y >= CY - BASELINE_YEARS);
+      const rank = same.filter((o) => o.r.hi > yr.hi).length + 1;
+      tile("Yesterday's high ranked", ordinal(rank), `warmest of ${same.length} years on ${MONTHS[yr.m - 1]} ${yr.d}`);
     }
     $("todayTiles").innerHTML = tiles.join("");
     $("todayNote").textContent = baseline.length
@@ -220,10 +227,10 @@
     }
     const label = `${MONTH_NAMES[m - 1]} ${d}`;
     const data = onDate(m, d);
-    // include today's live forecast for the current year if it isn't on record yet
-    if (isToday && live && !data.some((o) => o.y === CY)) {
-      const di = live.daily.time.indexOf(todayParts.iso);
-      if (di >= 0) data.push({ y: CY, r: { hi: live.daily.temperature_2m_max[di], lo: live.daily.temperature_2m_min[di], mean: live.daily.temperature_2m_mean[di], prov: true, forecast: true } });
+    // include today's observed range so far if today isn't on record yet
+    if (isToday && live && live.today && !data.some((o) => o.y === CY)) {
+      const t = live.today;
+      data.push({ y: CY, r: { hi: t.hi, lo: t.lo, mean: (t.hi + t.lo) / 2, prov: true, sofar: true } });
     }
     const ys = data.map((o) => o.y);
     const regHi = linreg(ys.filter((y) => y < CY), data.filter((o) => o.y < CY).map((o) => o.r.hi));
@@ -240,31 +247,40 @@
       if (regHi) parts.push(`Trend in the high: <b>${signed(regHi.slope * 10, 1)}°F per decade</b>.`);
       if (warm) parts.push(`Warmest: ${deg(warm.r.hi)} (${warm.y}). Coldest morning: ${deg(cold.r.lo)} (${cold.y}).`);
       const cur = data.find((o) => o.y === CY);
-      if (cur) parts.push(`${CY}: high ${deg(cur.r.hi)}, low ${deg(cur.r.lo)}${cur.r.forecast ? " (forecast)" : cur.r.prov ? " (provisional)" : ""}.`);
+      if (cur) parts.push(`${CY}: ${range(cur.r.lo, cur.r.hi)}F${cur.r.sofar ? " so far today" : cur.r.prov ? " (provisional)" : ""}.`);
       $("otdSummary").innerHTML = parts.join(" ");
     }
 
-    const hiC = css("--high"), loC = css("--low"), t3 = css("--text-3");
+    const hiC = css("--high"), loC = css("--low");
     const base = chartBase();
     base.scales.y.ticks.callback = (v) => `${v}°`;
-    base.plugins.tooltip.callbacks = { label: (c) => (c.dataset.borderDash ? null : `${c.dataset.label}: ${r0(c.parsed.y)}°F`) };
-    base.plugins.tooltip.filter = (c) => !c.dataset.borderDash;
+    base.scales.y.beginAtZero = false;
+    base.scales.y.grace = "4%";
+    base.plugins.tooltip.filter = (c) => c.datasetIndex === 0;
+    base.plugins.tooltip.callbacks = {
+      label: (c) => {
+        const r = data[c.dataIndex].r;
+        return ` ${range(r.lo, r.hi)}F (a ${Math.round(r.hi - r.lo)}° swing)${r.sofar ? " so far" : ""}`;
+      },
+    };
+    base.plugins.legend.labels.filter = (l) => l.datasetIndex !== 0;
     draw("otdChart", {
-      type: "line",
+      type: "bar",
       data: {
         labels: ys,
         datasets: [
-          { label: "High", data: data.map((o) => o.r.hi), borderColor: hiC, backgroundColor: hiC, borderWidth: 2, pointRadius: 4, pointHoverRadius: 6, tension: 0 },
-          { label: "Low", data: data.map((o) => o.r.lo), borderColor: loC, backgroundColor: loC, borderWidth: 2, pointRadius: 4, pointHoverRadius: 6, tension: 0 },
-          trendSet("High trend", ys, regHi, hiC),
-          trendSet("Low trend", ys, regLo, loC),
+          { label: "Range", data: data.map((o) => [o.r.lo, o.r.hi]), backgroundColor: css("--range"), borderRadius: 4, borderSkipped: false, maxBarThickness: 18, order: 3 },
+          { type: "line", label: "High", data: data.map((o) => o.r.hi), showLine: false, pointRadius: 4, pointHoverRadius: 5, backgroundColor: hiC, borderColor: css("--surface"), borderWidth: 1.5, order: 1 },
+          { type: "line", label: "Low", data: data.map((o) => o.r.lo), showLine: false, pointRadius: 4, pointHoverRadius: 5, backgroundColor: loC, borderColor: css("--surface"), borderWidth: 1.5, order: 1 },
+          { type: "line", order: 2, ...trendSet("High trend", ys, regHi, hiC) },
+          { type: "line", order: 2, ...trendSet("Low trend", ys, regLo, loC) },
         ],
       },
       options: base,
     });
     const ni = idx365(m, d);
-    $("otdTable").innerHTML = `<thead><tr><th>Year</th><th>High</th><th>Low</th><th>Mean</th><th>High vs. normal</th></tr></thead><tbody>` +
-      data.slice().reverse().map((o) => `<tr><td${o.r.prov ? ' class="prov"' : ""}>${o.y}${o.r.forecast ? " (forecast)" : o.r.prov ? " (prov.)" : ""}</td><td>${deg(o.r.hi)}</td><td>${deg(o.r.lo)}</td><td>${deg(o.r.mean)}</td><td>${signed(o.r.hi - normal.hi[ni])}°</td></tr>`).join("") +
+    $("otdTable").innerHTML = `<thead><tr><th>Year</th><th>Range (low–high)</th><th>Swing</th><th>High vs. normal</th><th>Low vs. normal</th><th>Station</th></tr></thead><tbody>` +
+      data.slice().reverse().map((o) => `<tr><td${o.r.prov ? ' class="prov"' : ""}>${o.y}${o.r.sofar ? " (so far)" : o.r.prov ? " (prov.)" : ""}</td><td>${range(o.r.lo, o.r.hi)}</td><td>${Math.round(o.r.hi - o.r.lo)}°</td><td>${signed(o.r.hi - normal.hi[ni])}°</td><td>${signed(o.r.lo - normal.lo[ni])}°</td><td>${esc(o.r.src || (o.r.sofar ? STATION.code : ""))}</td></tr>`).join("") +
       `</tbody>`;
   }
 
@@ -295,11 +311,11 @@
   // kind "first": settled as soon as it happens. kind "last": settled once the record covers `settleAt`.
   const SEASONS = {
     spring: {
-      thresh: { label: "7-day mean ≥", def: 70, min: 55, max: 78 },
+      thresh: { label: "7-day avg ≥", def: 70, min: 55, max: 78 },
       metrics: {
         warmup: {
           label: "Sustained warm-up", col: (t) => `Warm-up (${t}°F)`, color: "--high", kind: "first", end: idx365(7, 31),
-          def: (t) => `The first day after February 1 that begins a 7-day stretch whose average daily mean temperature is at or above ${t}°F — a lasting turn to warm weather, not a single warm day.`,
+          def: (t) => `The first day after February 1 that begins a 7-day stretch whose daily average temperature (high + low) ÷ 2 averages ${t}°F or more — a lasting turn to warm weather, not a single warm day.`,
           calc: (y, t) => firstRun(y, idx365(2, 1), idx365(7, 31), t, false),
         },
         lastFreeze: {
@@ -325,11 +341,11 @@
       },
     },
     fall: {
-      thresh: { label: "7-day mean ≤", def: 70, min: 60, max: 75 },
+      thresh: { label: "7-day avg ≤", def: 70, min: 60, max: 75 },
       metrics: {
         onset: {
           label: "Sustained cool-down", col: (t) => `Cool-down (${t}°F)`, color: "--low", kind: "first", end: 364,
-          def: (t) => `The first day after August 1 that begins a 7-day stretch whose average daily mean temperature is at or below ${t}°F — a sustained shift to cooler weather, not a single cool day.`,
+          def: (t) => `The first day after August 1 that begins a 7-day stretch whose daily average temperature (high + low) ÷ 2 averages ${t}°F or less — a sustained shift to cooler weather, not a single cool day.`,
           calc: (y, t) => firstRun(y, idx365(8, 1), 364, t, true),
         },
         last90: {
@@ -540,7 +556,7 @@
       const row = byDate.get(iso(yr, m + 1, i - CUM[m] + 1));
       const v = cells[yr][i];
       if (!row) { tip.hidden = true; return; }
-      tip.innerHTML = `<b>${idxLabel(i)}, ${yr}</b><br>High ${deg(row.hi)} · Low ${deg(row.lo)}<br>Week vs. normal: ${signed(v, 1)}°F`;
+      tip.innerHTML = `<b>${idxLabel(i)}, ${yr}</b><br>${range(row.lo, row.hi)}F (${esc(row.src)})<br>Week vs. normal: ${signed(v, 1)}°F`;
       tip.hidden = false;
       const tx = Math.min(x + 12, rect.width - tip.offsetWidth - 4);
       tip.style.left = Math.max(0, tx) + "px"; tip.style.top = (y + 14) + "px";
@@ -560,13 +576,13 @@
     const y = +$("logYear").value, m = +$("logMonth").value;
     const list = rows.filter((r) => r.y === y && (!m || r.m === m)).reverse();
     const hiC = css("--high"), loC = css("--low");
-    $("logTable").innerHTML = `<thead><tr><th>Date</th><th><span class="dot" style="background:${hiC}"></span>High</th><th><span class="dot" style="background:${loC}"></span>Low</th><th>Mean</th><th>High vs. normal</th><th>Low vs. normal</th><th>Status</th></tr></thead><tbody>` +
+    $("logTable").innerHTML = `<thead><tr><th>Date</th><th>Range (<span class="dot" style="background:${loC}"></span>low–<span class="dot" style="background:${hiC}"></span>high)</th><th>Swing</th><th>High vs. normal</th><th>Low vs. normal</th><th>Station</th><th>Status</th></tr></thead><tbody>` +
       list.map((r) => {
         const i = idx365(r.m, r.d);
         const dh = r.hi - normal.hi[i], dl = r.lo - normal.lo[i];
         const cls = (v) => (v >= 0.5 ? "up" : v <= -0.5 ? "down" : "");
         const day = new Date(Date.UTC(r.y, r.m - 1, r.d)).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
-        return `<tr><td>${esc(day)}</td><td>${deg(r.hi)}</td><td>${deg(r.lo)}</td><td>${deg(r.mean)}</td><td class="${cls(dh)}">${signed(dh)}°</td><td class="${cls(dl)}">${signed(dl)}°</td><td${r.prov ? ' class="prov"' : ""}>${r.prov ? "provisional" : "final"}</td></tr>`;
+        return `<tr><td>${esc(day)}</td><td>${range(r.lo, r.hi)}</td><td>${Math.round(r.hi - r.lo)}°</td><td class="${cls(dh)}">${signed(dh)}°</td><td class="${cls(dl)}">${signed(dl)}°</td><td>${esc(r.src)}</td><td${r.prov ? ' class="prov"' : ""}>${r.prov ? "provisional" : "final"}</td></tr>`;
       }).join("") + `</tbody>`;
   }
 
@@ -578,24 +594,13 @@
   async function boot() {
     const raw = (window.PLANO_DATA || []).slice();
     live = await fetchLive();
-    // Fill any gap between the stored record and yesterday with live estimates (display only).
-    if (live && live.daily) {
-      const have = new Set(raw.map((r) => r[0]));
-      live.daily.time.forEach((t, k) => {
-        const hi = live.daily.temperature_2m_max[k], lo = live.daily.temperature_2m_min[k];
-        if (t < todayParts.iso && !have.has(t) && isNum(hi) && isNum(lo) && raw.length) {
-          raw.push([t, hi, lo, isNum(live.daily.temperature_2m_mean[k]) ? live.daily.temperature_2m_mean[k] : (hi + lo) / 2, 1]);
-        }
-      });
-    }
     ingest(raw);
-    const meta = window.PLANO_META || {};
     if (!rows.length) {
       $("empty").hidden = false;
       $("coverage").textContent = "No temperature history recorded yet.";
     } else {
-      const upd = meta.updated ? ` · Record last updated ${new Date(meta.updated).toLocaleString()}` : "";
-      $("coverage").textContent = `${rows.length.toLocaleString()} days on record, ${rows[0].date} to ${rows[rows.length - 1].date}. All temperatures °F${upd}.`;
+      const upd = META.updated ? ` · Updated ${new Date(META.updated).toLocaleString()}` : "";
+      $("coverage").textContent = `Recorded at ${STATION.name} (${STATION.code}), the nearest official weather station to Plano. ${rows.length.toLocaleString()} days on record, ${rows[0].date} to ${rows[rows.length - 1].date}. All temperatures °F${upd}.`;
     }
     setupOtd(); setupSeason("spring"); setupSeason("fall"); setupHeat(); setupLog();
     $("trendSeason").addEventListener("change", renderTrend);
