@@ -43,22 +43,28 @@
     <details><summary>Table</summary><div class="table-scroll"><table id="otdTable"></table></div></details>
   </section>
 
+  <!-- Spring -->
+  <section class="card">
+    <div class="row-head">
+      <h2>When does spring warm-up arrive?</h2>
+      <div class="controls">
+        <label>Measure <select id="springMetric"></select></label>
+        <label id="springThreshWrap"><span id="springThreshLabel"></span> <select id="springThresh"></select></label>
+      </div>
+    </div>
+    <p class="note" id="springDef"></p>
+    <p class="summary" id="springSummary"></p>
+    <div class="chart-box"><canvas id="springChart" aria-label="Spring warm-up date by year"></canvas></div>
+    <details><summary>Table of all spring markers</summary><div class="table-scroll"><table id="springTable"></table></div></details>
+  </section>
+
   <!-- Autumn -->
   <section class="card">
     <div class="row-head">
       <h2>When does autumn arrive?</h2>
       <div class="controls">
-        <label>Measure
-          <select id="fallMetric">
-            <option value="onset">Sustained cool-down</option>
-            <option value="last90">Last 90°F+ high</option>
-            <option value="first50">First low ≤ 50°F</option>
-            <option value="firstFreeze">First freeze (≤ 32°F)</option>
-          </select>
-        </label>
-        <label id="fallThreshWrap">7-day mean ≤
-          <select id="fallThresh"></select>
-        </label>
+        <label>Measure <select id="fallMetric"></select></label>
+        <label id="fallThreshWrap"><span id="fallThreshLabel"></span> <select id="fallThresh"></select></label>
       </div>
     </div>
     <p class="note" id="fallDef"></p>

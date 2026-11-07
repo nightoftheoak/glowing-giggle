@@ -11,6 +11,7 @@ arrives each year**.
 |---|---|
 | **Today vs. the past 20 years** | Live temperature, today's forecast high/low vs. the 20-year normal for this date, the warmest and coldest this date has been, and where today ranks. |
 | **On this day, every year** | Pick any date (Halloween, Christmas, … one click) and see the high and low on that date for every year, with a trend line and a table. |
+| **When does spring warm-up arrive?** | The date warm weather arrived each year, with a trend in days per decade. Five measures: a sustained warm-up (first 7-day stretch with an average at or above a temperature you choose, 70°F by default), last freeze, and the first 80°F+, 90°F+ and 100°F+ highs. |
 | **When does autumn arrive?** | The date autumn arrived each year, with a trend in days per decade. Four measures: a sustained cool-down (first 7-day stretch with an average below a temperature you choose, 70°F by default), last 90°F+ day, first low ≤ 50°F, first freeze. |
 | **Long-term averages** | Yearly, seasonal (including Sep–Nov autumn) or October average temperature, shown as warmer or cooler than the 20-year average. |
 | **Every day vs. normal** | A heatmap with one row per year and one column per day, so warm Octobers and late summers stand out. |

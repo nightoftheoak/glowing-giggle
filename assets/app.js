@@ -268,76 +268,144 @@
       `</tbody>`;
   }
 
-  // ---------- section: autumn ----------
-  const FALL_DEFS = {
-    onset: (t) => `The first day after August 1 that begins a 7-day stretch whose average daily mean temperature is at or below ${t}°F — a sustained shift to cooler weather, not a single cool day.`,
-    last90: () => "The last day of the year with a high of 90°F or more — when summer heat ends.",
-    first50: () => "The first day after July 1 with a low of 50°F or colder — the first truly crisp morning.",
-    firstFreeze: () => "The first day after July 1 with a low of 32°F or colder.",
-  };
-  function fallMarkers(y, thresh) {
-    const lastDay = rows.length ? rows[rows.length - 1].date : "";
-    const complete = lastDay >= iso(y, 12, 31);
-    const out = { y, complete };
-    // sustained cool-down
-    out.onset = null;
-    for (let i = idx365(8, 1); i <= 364 - 6; i++) {
+  // ---------- seasonal arrival sections (spring & autumn) ----------
+  const lastRecorded = () => (rows.length ? rows[rows.length - 1].date : "");
+  const idxDate = (y, i) => { let m = 11; while (CUM[m] > i) m--; return iso(y, m + 1, i - CUM[m] + 1); };
+  // First day in [from, to] that starts a 7-day stretch whose average daily mean is <= (cool) or >= (warm) thresh.
+  function firstRun(y, from, to, thresh, cool) {
+    for (let i = from; i <= to - 6; i++) {
       const vals = [];
       for (let k = 0; k < 7; k++) vals.push(grid[y].mean[i + k]);
       if (vals.some((v) => !isNum(v))) continue;
-      if (avg(vals) <= thresh) { out.onset = i; break; }
+      const a = avg(vals);
+      if (cool ? a <= thresh : a >= thresh) return i;
     }
-    out.last90 = null; out.first50 = null; out.firstFreeze = null;
-    for (let i = 0; i < 365; i++) if (grid[y].hi[i] >= 90) out.last90 = i;
-    for (let i = idx365(7, 1); i < 365; i++) {
-      const lo = grid[y].lo[i];
-      if (out.first50 === null && lo <= 50) out.first50 = i;
-      if (out.firstFreeze === null && lo <= 32) out.firstFreeze = i;
-    }
-    // last 90° isn't settled for the current year until autumn is well along
-    out.last90Settled = complete || (y === CY && todayParts.m >= 11);
+    return null;
+  }
+  function firstWhere(y, key, from, to, pred) {
+    for (let i = from; i <= to; i++) if (isNum(grid[y][key][i]) && pred(grid[y][key][i])) return i;
+    return null;
+  }
+  function lastWhere(y, key, from, to, pred) {
+    let out = null;
+    for (let i = from; i <= to; i++) if (isNum(grid[y][key][i]) && pred(grid[y][key][i])) out = i;
     return out;
   }
-  function setupFall() {
-    const sel = $("fallThresh");
-    for (let t = 60; t <= 75; t++) sel.insertAdjacentHTML("beforeend", `<option value="${t}"${t === 70 ? " selected" : ""}>${t}°F</option>`);
-    $("fallMetric").addEventListener("change", renderFall);
-    sel.addEventListener("change", renderFall);
+
+  // kind "first": settled as soon as it happens. kind "last": settled once the record covers `settleAt`.
+  const SEASONS = {
+    spring: {
+      thresh: { label: "7-day mean ≥", def: 70, min: 55, max: 78 },
+      metrics: {
+        warmup: {
+          label: "Sustained warm-up", col: (t) => `Warm-up (${t}°F)`, color: "--high", kind: "first", end: idx365(7, 31),
+          def: (t) => `The first day after February 1 that begins a 7-day stretch whose average daily mean temperature is at or above ${t}°F — a lasting turn to warm weather, not a single warm day.`,
+          calc: (y, t) => firstRun(y, idx365(2, 1), idx365(7, 31), t, false),
+        },
+        lastFreeze: {
+          label: "Last freeze (≤ 32°F)", col: () => "Last freeze", color: "--low", kind: "last", end: idx365(6, 30), settleAt: idx365(6, 30),
+          def: () => "The last day before July 1 with a low of 32°F or colder — the end of frost risk.",
+          calc: (y) => lastWhere(y, "lo", 0, idx365(6, 30), (v) => v <= 32),
+        },
+        first80: {
+          label: "First 80°F+ high", col: () => "First 80°F+", color: "--high", kind: "first", end: 364,
+          def: () => "The first day of the year with a high of 80°F or more.",
+          calc: (y) => firstWhere(y, "hi", 0, 364, (v) => v >= 80),
+        },
+        first90: {
+          label: "First 90°F+ high", col: () => "First 90°F+", color: "--high", kind: "first", end: 364,
+          def: () => "The first day of the year with a high of 90°F or more — when summer heat starts.",
+          calc: (y) => firstWhere(y, "hi", 0, 364, (v) => v >= 90),
+        },
+        first100: {
+          label: "First 100°F+ high", col: () => "First 100°F+", color: "--high", kind: "first", end: 364,
+          def: () => "The first day of the year with a high of 100°F or more. Some years never reach 100°F.",
+          calc: (y) => firstWhere(y, "hi", 0, 364, (v) => v >= 100),
+        },
+      },
+    },
+    fall: {
+      thresh: { label: "7-day mean ≤", def: 70, min: 60, max: 75 },
+      metrics: {
+        onset: {
+          label: "Sustained cool-down", col: (t) => `Cool-down (${t}°F)`, color: "--low", kind: "first", end: 364,
+          def: (t) => `The first day after August 1 that begins a 7-day stretch whose average daily mean temperature is at or below ${t}°F — a sustained shift to cooler weather, not a single cool day.`,
+          calc: (y, t) => firstRun(y, idx365(8, 1), 364, t, true),
+        },
+        last90: {
+          label: "Last 90°F+ high", col: () => "Last 90°F+", color: "--high", kind: "last", end: 364, settleAt: idx365(11, 1),
+          def: () => "The last day of the year with a high of 90°F or more — when summer heat ends.",
+          calc: (y) => lastWhere(y, "hi", 0, 364, (v) => v >= 90),
+        },
+        first50: {
+          label: "First low ≤ 50°F", col: () => "First ≤ 50°F", color: "--low", kind: "first", end: 364,
+          def: () => "The first day after July 1 with a low of 50°F or colder — the first truly crisp morning.",
+          calc: (y) => firstWhere(y, "lo", idx365(7, 1), 364, (v) => v <= 50),
+        },
+        firstFreeze: {
+          label: "First freeze (≤ 32°F)", col: () => "First freeze", color: "--low", kind: "first", end: 364,
+          def: () => "The first day after July 1 with a low of 32°F or colder.",
+          calc: (y) => firstWhere(y, "lo", idx365(7, 1), 364, (v) => v <= 32),
+        },
+      },
+    },
+  };
+
+  // For one metric and year: { v: day index or null, settled, never }
+  function seasonMark(mt, y, t) {
+    const v = mt.calc(y, t), last = lastRecorded();
+    const covered = (i) => last >= idxDate(y, i);
+    if (mt.kind === "last") {
+      const settled = covered(mt.settleAt);
+      return { v, settled: v !== null && settled, never: v === null && settled };
+    }
+    return { v, settled: v !== null, never: v === null && covered(mt.end) };
   }
-  function renderFall() {
-    const metric = $("fallMetric").value, thresh = +$("fallThresh").value;
-    $("fallThreshWrap").hidden = metric !== "onset";
-    $("fallDef").textContent = FALL_DEFS[metric](thresh);
-    const marks = years.map((y) => fallMarkers(y, thresh));
-    const usable = (mk) => {
-      const v = mk[metric];
-      if (v === null) return null;
-      if (metric === "last90" && !mk.last90Settled) return null;
-      return v;
-    };
-    const pts = marks.map((mk) => ({ x: mk.y, v: usable(mk) })).filter((p) => p.v !== null);
-    const reg = linreg(pts.filter((p) => p.x < CY).map((p) => p.x), pts.filter((p) => p.x < CY).map((p) => p.v));
+
+  function setupSeason(key) {
+    const cfg = SEASONS[key];
+    $(`${key}Metric`).innerHTML = Object.entries(cfg.metrics).map(([k, mt]) => `<option value="${k}">${mt.label}</option>`).join("");
+    $(`${key}ThreshLabel`).textContent = cfg.thresh.label;
+    const sel = $(`${key}Thresh`);
+    for (let t = cfg.thresh.min; t <= cfg.thresh.max; t++) sel.insertAdjacentHTML("beforeend", `<option value="${t}"${t === cfg.thresh.def ? " selected" : ""}>${t}°F</option>`);
+    $(`${key}Metric`).addEventListener("change", () => renderSeason(key));
+    sel.addEventListener("change", () => renderSeason(key));
+  }
+
+  function renderSeason(key) {
+    const cfg = SEASONS[key], P = (s) => $(`${key}${s}`);
+    const metric = P("Metric").value, thresh = +P("Thresh").value, mt = cfg.metrics[metric];
+    P("ThreshWrap").hidden = !mt.col(0).includes("(");
+    P("Def").textContent = mt.def(thresh);
+    const marks = years.map((y) => ({ y, ...seasonMark(mt, y, thresh) }));
+    const pts = marks.filter((mk) => mk.settled).map((mk) => ({ x: mk.y, v: mk.v }));
+    const done = pts.filter((p) => p.x < CY);
+    const reg = linreg(done.map((p) => p.x), done.map((p) => p.v));
     const h = halves(pts);
+    const days = (n) => `${Math.abs(n)} day${Math.abs(n) === 1 ? "" : "s"}`;
     const parts = [];
     if (h) {
       const shift = Math.round(h.b) - Math.round(h.a);
-      const shiftTxt = shift === 0 ? "about the same" : `${Math.abs(shift)} day${Math.abs(shift) === 1 ? "" : "s"} ${shift > 0 ? "later" : "earlier"}`;
+      const shiftTxt = shift === 0 ? "about the same" : `${days(shift)} ${shift > 0 ? "later" : "earlier"}`;
       parts.push(`Typical date: <b>${idxLabel(Math.round(h.a))}</b> in ${h.aLab} vs. <b>${idxLabel(Math.round(h.b))}</b> in ${h.bLab} (${shiftTxt}).`);
     }
     if (reg) parts.push(`Trend: <b>${Math.abs(reg.slope * 10).toFixed(1)} days ${reg.slope >= 0 ? "later" : "earlier"} per decade</b>.`);
     const cur = marks.find((mk) => mk.y === CY);
     if (cur) {
-      const v = usable(cur);
-      const bl = avg(pts.filter((p) => baseline.includes(p.x)).map((p) => p.v));
-      if (v !== null) parts.push(`${CY}: <b>${idxLabel(v)}</b>${isNum(bl) ? ` — ${Math.round(v - Math.round(bl)) === 0 ? "right on" : `${Math.abs(v - Math.round(bl))} days ${v > Math.round(bl) ? "later" : "earlier"} than`} the ${baseline.length}-year average (${idxLabel(Math.round(bl))})`.replace("right on the", "right at the") : ""}.`);
-      else parts.push(`${CY}: not reached yet${metric === "last90" ? " (summer still possible)" : ""}.`);
+      const bl = Math.round(avg(pts.filter((p) => baseline.includes(p.x)).map((p) => p.v)));
+      if (cur.settled) {
+        const d = cur.v - bl;
+        const vs = !isNum(bl) ? "" : d === 0 ? ` — right at the ${baseline.length}-year average` : ` — ${days(d)} ${d > 0 ? "later" : "earlier"} than the ${baseline.length}-year average (${idxLabel(bl)})`;
+        parts.push(`${CY}: <b>${idxLabel(cur.v)}</b>${vs}.`);
+      } else if (cur.never) parts.push(`${CY}: didn't happen.`);
+      else if (cur.v !== null) parts.push(`${CY}: ${idxLabel(cur.v)} so far (could still change).`);
+      else parts.push(`${CY}: not reached yet.`);
     }
-    const missing = marks.filter((mk) => mk.complete && mk[metric] === null).map((mk) => mk.y);
+    const missing = marks.filter((mk) => mk.never && mk.y < CY).map((mk) => mk.y);
     if (missing.length) parts.push(`<span class="note">Never happened in: ${missing.join(", ")}.</span>`);
-    $("fallSummary").innerHTML = parts.join(" ");
+    P("Summary").innerHTML = parts.join(" ");
 
-    const color = metric === "last90" ? css("--high") : css("--low");
-    const xs = pts.map((p) => p.x);
+    const color = css(mt.color), xs = pts.map((p) => p.x);
     const base = chartBase();
     base.plugins.legend.display = false;
     base.interaction = { mode: "nearest", intersect: false, axis: "x" };
@@ -345,21 +413,22 @@
     base.scales.y.ticks.stepSize = 7;
     base.plugins.tooltip.filter = (c) => c.datasetIndex === 0;
     base.plugins.tooltip.callbacks = { label: (c) => ` ${idxLabel(c.parsed.y)}` };
-    draw("fallChart", {
+    draw(`${key}Chart`, {
       type: "line",
       data: {
         labels: xs,
         datasets: [
-          { label: "Date", data: pts.map((p) => p.v), borderColor: color, backgroundColor: color, borderWidth: 2, pointRadius: 5, pointHoverRadius: 7, showLine: true, tension: 0 },
+          { label: "Date", data: pts.map((p) => p.v), borderColor: color, backgroundColor: color, borderWidth: 2, pointRadius: 5, pointHoverRadius: 7, tension: 0 },
           trendSet("Trend", xs, reg, css("--text-3")),
         ],
       },
       options: base,
     });
 
-    const cell = (v, settled = true) => (v === null ? "—" : idxLabel(v) + (settled ? "" : " (so far)"));
-    $("fallTable").innerHTML = `<thead><tr><th>Year</th><th>Cool-down (${thresh}°F)</th><th>Last 90°F+</th><th>First ≤ 50°F</th><th>First freeze</th></tr></thead><tbody>` +
-      marks.slice().reverse().map((mk) => `<tr><td>${mk.y}</td><td>${cell(mk.onset)}</td><td>${cell(mk.last90, mk.last90Settled)}</td><td>${cell(mk.first50)}</td><td>${cell(mk.firstFreeze)}</td></tr>`).join("") + `</tbody>`;
+    const entries = Object.values(cfg.metrics);
+    const cell = (m) => (m.v === null ? "—" : idxLabel(m.v) + (m.settled ? "" : " (so far)"));
+    P("Table").innerHTML = `<thead><tr><th>Year</th>${entries.map((e) => `<th>${e.col(thresh)}</th>`).join("")}</tr></thead><tbody>` +
+      years.slice().reverse().map((y) => `<tr><td>${y}</td>${entries.map((e) => `<td>${cell(seasonMark(e, y, thresh))}</td>`).join("")}</tr>`).join("") + `</tbody>`;
   }
 
   // ---------- section: long-term ----------
@@ -503,7 +572,7 @@
 
   // ---------- boot ----------
   function renderAll() {
-    renderToday(); renderOtd(); renderFall(); renderTrend(); renderHeat(); renderLog();
+    renderToday(); renderOtd(); renderSeason("spring"); renderSeason("fall"); renderTrend(); renderHeat(); renderLog();
   }
 
   async function boot() {
@@ -528,7 +597,7 @@
       const upd = meta.updated ? ` · Record last updated ${new Date(meta.updated).toLocaleString()}` : "";
       $("coverage").textContent = `${rows.length.toLocaleString()} days on record, ${rows[0].date} to ${rows[rows.length - 1].date}. All temperatures °F${upd}.`;
     }
-    setupOtd(); setupFall(); setupHeat(); setupLog();
+    setupOtd(); setupSeason("spring"); setupSeason("fall"); setupHeat(); setupLog();
     $("trendSeason").addEventListener("change", renderTrend);
     // Default "on this day" to today; Halloween is one click away.
     otd = { m: todayParts.m, d: todayParts.d };
