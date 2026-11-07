@@ -3,7 +3,6 @@
   "use strict";
 
   const TZ = "America/Chicago";
-  const BASELINE_YEARS = 20;
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const CUM = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]; // non-leap day offsets
@@ -53,7 +52,15 @@
 
   // ---------- data model ----------
   const META = window.PLANO_META || {};
-  const STATION = META.station || { code: "KTKI", name: "McKinney National Airport" };
+  const STATION = META.station || { code: "KDFW", name: "DFW International Airport" };
+  // What "normal" means. Each option picks the completed years averaged into the normals.
+  const BASELINES = {
+    last20: { label: () => `Last 20 years (${CY - 20}–${CY - 1})`, pick: (ys) => ys.filter((y) => y >= CY - 20 && y < CY) },
+    noaa: { label: () => "1991–2020 (NOAA's official normals period)", pick: (ys) => ys.filter((y) => y >= 1991 && y <= 2020) },
+    all: { label: (ys) => `Whole record (${ys[0]}–${CY - 1})`, pick: (ys) => ys.filter((y) => y < CY) },
+  };
+  let baselineMode = "last20";
+  try { const saved = localStorage.getItem("plano-baseline"); if (saved && BASELINES[saved]) baselineMode = saved; } catch (e) { /* storage unavailable */ }
   const SOURCES = META.sources || [];
   let rows = [], byDate = new Map(), years = [], grid = {}, normal = null, baseline = [];
   let live = null;
@@ -72,7 +79,11 @@
       const g = grid[r.y], i = idx365(r.m, r.d);
       g.hi[i] = r.hi; g.lo[i] = r.lo; g.mean[i] = r.mean;
     }
-    baseline = years.filter((y) => y >= CY - BASELINE_YEARS && y < CY);
+    computeNormals();
+  }
+
+  function computeNormals() {
+    baseline = BASELINES[baselineMode].pick(years);
     normal = { hi: [], lo: [], mean: [] };
     for (const k of ["hi", "lo", "mean"]) {
       for (let i = 0; i < 365; i++) {
@@ -82,6 +93,8 @@
       }
     }
   }
+
+  const baselineName = () => (baseline.length ? `${baseline[0]}–${baseline[baseline.length - 1]}` : "");
 
   // values for an exact calendar date (each year)
   function onDate(m, d) {
@@ -137,7 +150,7 @@
       tile("Right now", "—", "Live station reading unavailable");
     }
 
-    const hist = onDate(m, d).filter((o) => o.y < CY && o.y >= CY - BASELINE_YEARS);
+    const hist = onDate(m, d).filter((o) => baseline.includes(o.y));
     if (hist.length) {
       const hiRec = hist.reduce((a, b) => (b.r.hi > a.r.hi ? b : a));
       const loRec = hist.reduce((a, b) => (b.r.lo < a.r.lo ? b : a));
@@ -150,7 +163,7 @@
     if (yr) {
       const yi = idx365(yr.m, yr.d);
       tile("Yesterday", range(yr.lo, yr.hi), vsNormalRange(yr.lo, yr.hi, normal.lo[yi], normal.hi[yi]) + (yr.prov ? " · provisional" : ""));
-      const same = onDate(yr.m, yr.d).filter((o) => o.y >= CY - BASELINE_YEARS);
+      const same = onDate(yr.m, yr.d).filter((o) => baseline.includes(o.y) || o.y === yr.y);
       const rank = same.filter((o) => o.r.hi > yr.hi).length + 1;
       tile("Yesterday's high ranked", ordinal(rank), `warmest of ${same.length} years on ${MONTHS[yr.m - 1]} ${yr.d}`);
     }
@@ -411,7 +424,7 @@
       const bl = Math.round(avg(pts.filter((p) => baseline.includes(p.x)).map((p) => p.v)));
       if (cur.settled) {
         const d = cur.v - bl;
-        const vs = !isNum(bl) ? "" : d === 0 ? ` — right at the ${baseline.length}-year average` : ` — ${days(d)} ${d > 0 ? "later" : "earlier"} than the ${baseline.length}-year average (${idxLabel(bl)})`;
+        const vs = !isNum(bl) ? "" : d === 0 ? ` — right at the ${baselineName()} average` : ` — ${days(d)} ${d > 0 ? "later" : "earlier"} than the ${baselineName()} average (${idxLabel(bl)})`;
         parts.push(`${CY}: <b>${idxLabel(cur.v)}</b>${vs}.`);
       } else if (cur.never) parts.push(`${CY}: didn't happen.`);
       else if (cur.v !== null) parts.push(`${CY}: ${idxLabel(cur.v)} so far (could still change).`);
@@ -482,7 +495,7 @@
       const prior = full.filter((s) => baseline.includes(s.y)).map((s) => hotStats(s.y, t, upto).count);
       const typ = avg(prior);
       const rank = prior.filter((c) => c > cur.count).length + 1;
-      parts.push(`${CY} so far: <b>${cur.count} days</b> through ${MONTHS[lastRow.m - 1]} ${lastRow.d}${isNum(typ) ? `, vs. ${Math.round(typ)} by this date in a typical year (${rank === 1 ? "the most" : ordinal(rank) + " most"} of the last ${prior.length + 1} years by this date)` : ""}.`);
+      parts.push(`${CY} so far: <b>${cur.count} days</b> through ${MONTHS[lastRow.m - 1]} ${lastRow.d}${isNum(typ) ? `, vs. ${Math.round(typ)} by this date in a typical ${baselineName()} year (${rank === 1 ? `more than any ${baselineName()} year` : `${ordinal(rank)} most against the ${prior.length} years of ${baselineName()}`} by this date)` : ""}.`);
     }
     $("hotSummary").innerHTML = parts.join(" ");
 
@@ -545,7 +558,7 @@
     const base = chartBase();
     base.plugins.legend.display = false;
     base.scales.y.ticks.callback = (v) => `${signed(v, 1)}°`;
-    base.scales.y.title = { display: true, text: `°F vs. ${isNum(bl) ? bl.toFixed(1) + "°F " : ""}20-year average`, color: css("--text-2") };
+    base.scales.y.title = { display: true, text: `°F vs. ${isNum(bl) ? bl.toFixed(1) + "°F, the " : ""}${baselineName()} average`, color: css("--text-2") };
     base.plugins.tooltip.filter = (c) => c.datasetIndex === 0;
     base.plugins.tooltip.callbacks = { label: (c) => ` ${anom[c.dataIndex].abs.toFixed(1)}°F (${signed(c.parsed.y, 1)}°)` };
     draw("trendChart", {
@@ -661,8 +674,17 @@
       $("coverage").textContent = "No temperature history recorded yet.";
     } else {
       const upd = META.updated ? ` · Updated ${new Date(META.updated).toLocaleString()}` : "";
-      $("coverage").textContent = `Recorded at ${STATION.name} (${STATION.code}), the nearest official weather station to Plano. ${rows.length.toLocaleString()} days on record, ${rows[0].date} to ${rows[rows.length - 1].date}. All temperatures °F${upd}.`;
+      $("coverage").textContent = `Official Dallas–Fort Worth record from ${STATION.name} (${STATION.code}), about 20 miles south-west of Plano. ${rows.length.toLocaleString()} days on record, ${rows[0].date} to ${rows[rows.length - 1].date}. All temperatures °F${upd}.`;
     }
+    const bsel = $("baselineSel");
+    bsel.innerHTML = Object.entries(BASELINES).map(([k, b]) => `<option value="${k}">${b.label(years)}</option>`).join("");
+    bsel.value = baselineMode;
+    bsel.addEventListener("change", () => {
+      baselineMode = bsel.value;
+      try { localStorage.setItem("plano-baseline", baselineMode); } catch (e) { /* storage unavailable */ }
+      computeNormals();
+      renderAll();
+    });
     setupOtd(); setupSeason("spring"); setupSeason("fall"); setupHeat(); setupLog();
     $("trendSeason").addEventListener("change", renderTrend);
     $("hotThresh").addEventListener("change", renderHot);

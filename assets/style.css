@@ -124,3 +124,7 @@ td.prov { color: var(--text-3); font-style: italic; }
   .chart-box { height: 280px; }
   .tile .value { font-size: 1.6rem; }
 }
+header .controls { margin-top: 10px; }
+select { max-width: 100%; }
+.controls label { min-width: 0; max-width: 100%; }
+header .controls label { flex-wrap: wrap; }

@@ -12,18 +12,19 @@
 <header class="wrap">
   <h1>Plano, TX temperature record</h1>
   <p class="sub" id="coverage">Loading…</p>
+  <div class="controls"><label>Compare against <select id="baselineSel" aria-label="Period used for normal"></select></label></div>
 </header>
 
 <main class="wrap">
   <div id="empty" class="card notice" hidden>
     <strong>No data on record yet.</strong> Run the <em>Update Plano temperatures</em> GitHub Action
     (Actions tab → Run workflow), or run <code>python scripts/update_data.py</code> locally.
-    The first run backfills 20 years of recorded daily highs and lows.
+    The first run backfills recorded daily highs and lows from 1990 onward.
   </div>
 
   <!-- Today -->
   <section class="card" id="today">
-    <h2>Today vs. the past 20 years</h2>
+    <h2>Today vs. normal</h2>
     <div class="tiles" id="todayTiles"></div>
     <p class="note" id="todayNote"></p>
   </section>
@@ -113,7 +114,7 @@
 
   <section class="card">
     <h2>Every day vs. normal</h2>
-    <p class="note">Each row is a year, each column a day. Red is warmer than the 20-year normal for that date, blue is cooler (daily average of the high and low, smoothed over 7 days). Hover for details.</p>
+    <p class="note">Each row is a year, each column a day. Red is warmer than normal for that date (see “Compare against” at the top), blue is cooler (daily average of the high and low, smoothed over 7 days). Hover for details.</p>
     <div class="heat-wrap"><canvas id="heat"></canvas><div id="heatTip" class="tip" hidden></div></div>
     <div class="heat-legend" id="heatLegend"></div>
   </section>
@@ -133,14 +134,16 @@
 </main>
 
 <footer class="wrap note">
-  Temperatures are the official daily high and low recorded by the National Weather Service station at McKinney National Airport
-  (KTKI), about 13 miles north-east of central Plano, retrieved from NOAA through the Applied Climate Information System (ACIS).
-  Plano has no official station of its own. On the few days KTKI didn't report, Dallas Love Field (KDAL) values are used and labelled.
+  Temperatures are the official daily high and low recorded by the National Weather Service at Dallas/Fort Worth International Airport
+  (KDFW), the official Dallas–Fort Worth climate record, retrieved from NOAA through the Applied Climate Information System (ACIS).
+  Plano has no official station of its own, and none of the stations nearer Plano has a complete record back to 1990; using one station
+  throughout keeps long-term trends free of jumps from switching instruments. DFW is about 20 miles south-west of Plano, and its overnight
+  lows run a few degrees warmer than north Collin County's. On any day DFW didn't report, Dallas Love Field (KDAL) is used and labelled.
   The daily average used for warm-up and cool-down dates is NOAA's standard (high + low) ÷ 2.
   The last 7 days are “provisional” because stations sometimes correct their reports; after that, values are never changed.
-  The current reading and today's range so far come from KTKI's hourly observations (api.weather.gov), so they can miss a brief peak
-  that the official daily high later captures. “Normal” means the average for that calendar date over the 20 years before the
-  current year, smoothed over ±3 days.
+  The current reading and today's range so far come from DFW's hourly observations (api.weather.gov), so they can miss a brief peak
+  that the official daily high later captures. “Normal” is the average for that calendar date over the period chosen in
+  “Compare against”, smoothed over ±3 days.
 </footer>
 
 <script src="assets/app.js"></script>

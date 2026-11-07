@@ -8,9 +8,11 @@ Source
 Recorded daily high and low temperatures from NOAA weather stations, served by
 the Applied Climate Information System (ACIS, data.rcc-acis.org). No API key.
 
-- Primary:  McKinney National Airport (KTKI), the nearest official NWS station
-            to Plano (about 13 miles north-east).
-- Gap fill: Dallas Love Field (KDAL), used only for days KTKI did not report.
+- Primary:  Dallas/Fort Worth International Airport (KDFW), the official
+            Dallas-Fort Worth climate record. It is complete back to 1974,
+            which no station nearer Plano is, and one station throughout keeps
+            long-term trends free of jumps from switching instruments.
+- Gap fill: Dallas Love Field (KDAL), used only for days KDFW did not report.
             Those rows say so in the `source` column.
 
 How the record is kept
@@ -19,6 +21,8 @@ How the record is kept
 - Days from the last 7 days are `provisional`: stations sometimes correct
   their reports, so these are re-fetched on every run.
 - Older days are `final` and never rewritten, so the record is preserved.
+  The one exception is a deliberate change of station: rows from any source
+  other than PRIMARY/FALLBACK below are replaced (git history keeps them).
 - `mean_f` is the daily average NOAA uses: (high + low) / 2.
 
 Outputs data/plano_daily.csv (canonical) and data/plano_daily.js (same data
@@ -39,9 +43,9 @@ from zoneinfo import ZoneInfo
 
 CITY = "Plano, TX"
 TZ = "America/Chicago"
-PRIMARY = {"sid": "53914 1", "code": "KTKI", "name": "McKinney National Airport", "lat": 33.1772, "lon": -96.5905}
+PRIMARY = {"sid": "03927 1", "code": "KDFW", "name": "DFW International Airport", "lat": 32.8998, "lon": -97.0403}
 FALLBACK = {"sid": "13960 1", "code": "KDAL", "name": "Dallas Love Field", "lat": 32.8519, "lon": -96.8555}
-BACKFILL_START = dt.date.fromisoformat(os.environ.get("BACKFILL_START", "2006-01-01"))
+BACKFILL_START = dt.date.fromisoformat(os.environ.get("BACKFILL_START", "1990-01-01"))
 PROVISIONAL_DAYS = 7
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -85,17 +89,22 @@ def fetch_station(sid: str, start: dt.date, end: dt.date) -> dict[str, tuple[flo
     return out
 
 
+def gap_fill_label() -> str:
+    return f"{FALLBACK['code']} (gap fill for {PRIMARY['code']})"
+
+
 def load_record() -> dict[str, dict]:
     if not CSV_PATH.exists():
         return {}
     with CSV_PATH.open(newline="") as fh:
         rows = {row["date"]: row for row in csv.DictReader(fh) if row.get("date")}
-    # One-time migration: the first version stored modelled (Open-Meteo/ERA5) values.
-    # Those are replaced by station observations; git history keeps the old file.
-    modelled = [d for d, r in rows.items() if r.get("source", "").startswith("open-meteo")]
-    if modelled:
-        print(f"Replacing {len(modelled)} modelled days with station observations.", file=sys.stderr)
-        for d in modelled:
+    # Rows from an earlier data source (Open-Meteo model estimates, then McKinney
+    # airport KTKI) are replaced when the station changes; git history keeps them.
+    current = {PRIMARY["code"], gap_fill_label()}
+    old = [d for d, r in rows.items() if r.get("source") not in current]
+    if old:
+        print(f"Replacing {len(old)} days from an earlier data source with {PRIMARY['code']} records.", file=sys.stderr)
+        for d in old:
             del rows[d]
     return rows
 
@@ -173,7 +182,7 @@ def main() -> int:
         if key in primary:
             changed += put(record, key, *primary[key], status, PRIMARY["code"])
         elif key in fallback:
-            changed += put(record, key, *fallback[key], status, f"{FALLBACK['code']} (gap fill)")
+            changed += put(record, key, *fallback[key], status, gap_fill_label())
             filled += 1
         else:
             missing += 1
