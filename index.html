@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plano Temperature Record</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="data/plano_daily.js"></script>
+</head>
+<body>
+<header class="wrap">
+  <h1>Plano, TX temperature record</h1>
+  <p class="sub" id="coverage">Loading…</p>
+</header>
+
+<main class="wrap">
+  <div id="empty" class="card notice" hidden>
+    <strong>No data on record yet.</strong> Run the <em>Update Plano temperatures</em> GitHub Action
+    (Actions tab → Run workflow), or run <code>python scripts/update_data.py</code> locally.
+    The first run backfills 20 years of daily highs and lows.
+  </div>
+
+  <!-- Today -->
+  <section class="card" id="today">
+    <h2>Today vs. the past 20 years</h2>
+    <div class="tiles" id="todayTiles"></div>
+    <p class="note" id="todayNote"></p>
+  </section>
+
+  <!-- On this day -->
+  <section class="card">
+    <div class="row-head">
+      <h2>On this day, every year</h2>
+      <div class="controls">
+        <select id="otdMonth" aria-label="Month"></select>
+        <select id="otdDay" aria-label="Day"></select>
+        <div class="chips" id="otdPresets"></div>
+      </div>
+    </div>
+    <p class="summary" id="otdSummary"></p>
+    <div class="chart-box"><canvas id="otdChart" aria-label="High and low temperature on the selected date, by year"></canvas></div>
+    <details><summary>Table</summary><div class="table-scroll"><table id="otdTable"></table></div></details>
+  </section>
+
+  <!-- Autumn -->
+  <section class="card">
+    <div class="row-head">
+      <h2>When does autumn arrive?</h2>
+      <div class="controls">
+        <label>Measure
+          <select id="fallMetric">
+            <option value="onset">Sustained cool-down</option>
+            <option value="last90">Last 90°F+ high</option>
+            <option value="first50">First low ≤ 50°F</option>
+            <option value="firstFreeze">First freeze (≤ 32°F)</option>
+          </select>
+        </label>
+        <label id="fallThreshWrap">7-day mean ≤
+          <select id="fallThresh"></select>
+        </label>
+      </div>
+    </div>
+    <p class="note" id="fallDef"></p>
+    <p class="summary" id="fallSummary"></p>
+    <div class="chart-box"><canvas id="fallChart" aria-label="Autumn arrival date by year"></canvas></div>
+    <details><summary>Table of all autumn markers</summary><div class="table-scroll"><table id="fallTable"></table></div></details>
+  </section>
+
+  <!-- Long-term -->
+  <section class="card">
+    <div class="row-head">
+      <h2>Long-term averages</h2>
+      <div class="controls">
+        <select id="trendSeason" aria-label="Season">
+          <option value="year">Full year</option>
+          <option value="fall">Autumn (Sep–Nov)</option>
+          <option value="summer">Summer (Jun–Aug)</option>
+          <option value="winter">Winter (Dec–Feb)</option>
+          <option value="spring">Spring (Mar–May)</option>
+          <option value="10">October only</option>
+        </select>
+      </div>
+    </div>
+    <p class="summary" id="trendSummary"></p>
+    <div class="chart-box"><canvas id="trendChart" aria-label="Average temperature by year"></canvas></div>
+  </section>
+
+  <section class="card">
+    <h2>Every day vs. normal</h2>
+    <p class="note">Each row is a year, each column a day. Red is warmer than the 20-year normal for that date, blue is cooler (daily mean, smoothed over 7 days). Hover for details.</p>
+    <div class="heat-wrap"><canvas id="heat"></canvas><div id="heatTip" class="tip" hidden></div></div>
+    <div class="heat-legend" id="heatLegend"></div>
+  </section>
+
+  <!-- Log -->
+  <section class="card">
+    <div class="row-head">
+      <h2>Daily log</h2>
+      <div class="controls">
+        <select id="logYear" aria-label="Year"></select>
+        <select id="logMonth" aria-label="Month"></select>
+        <a class="btn" href="data/plano_daily.csv" download>Download CSV</a>
+      </div>
+    </div>
+    <div class="table-scroll"><table id="logTable"></table></div>
+  </section>
+</main>
+
+<footer class="wrap note">
+  Daily highs and lows are from the Open-Meteo historical archive (ERA5 reanalysis, ~9&nbsp;km grid centred on Plano),
+  recorded daily by this repository's GitHub Action. Rows marked “provisional” are recent estimates that are replaced once the
+  archive publishes final values (about five days later); after that, values are never changed.
+  The current reading is fetched live from Open-Meteo. “Normal” means the average for that calendar date over the 20 years
+  before the current year, smoothed over ±3 days.
+</footer>
+
+<script src="assets/app.js"></script>
+</body>
+</html>
