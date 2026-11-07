@@ -40,7 +40,9 @@ be a degree or two off from the official DFW Airport or a backyard thermometer.
    (Settings → Actions → General → Workflow permissions → *Read and write*).
 2. **View the dashboard:**
    - Locally: clone the repo and open `index.html` in a browser. A server isn't needed.
-   - Hosted: enable **GitHub Pages** (Settings → Pages → Deploy from branch, `/` root).
+   - Hosted: in Settings → Pages, set **Source** to **GitHub Actions**. The *Deploy dashboard to GitHub Pages*
+     workflow publishes the site on every push to `main` and after each daily data update.
+     (For a private repository, Pages needs a paid GitHub plan, and the published site is public.)
 
 To run the update yourself: `python3 scripts/update_data.py`.
 To keep a longer history (the archive goes back to 1940): `BACKFILL_START=1940-01-01 python3 scripts/update_data.py`.
