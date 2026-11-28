@@ -20,12 +20,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  build:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      artifact: ${{ steps.name.outputs.artifact }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -34,9 +33,36 @@ jobs:
         run: |
           mkdir _site
           cp -r index.html assets data _site/
+      # A re-run uploads a fresh copy of the site. Naming it per attempt stops
+      # deploy-pages from finding two artifacts with the same name.
+      - id: name
+        run: echo "artifact=github-pages-attempt-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
           path: _site
+          name: ${{ steps.name.outputs.artifact }}
+
+  # Deploy is a separate job so "Re-run failed jobs" retries only this step and
+  # reuses the site the build job already uploaded.
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.retry.outputs.page_url || steps.deployment.outputs.page_url }}
+    steps:
       - id: deployment
+        continue-on-error: true
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: ${{ needs.build.outputs.artifact }}
+      # GitHub's API sometimes reports a just-uploaded artifact as missing.
+      # Wait and try once more before failing.
+      - if: steps.deployment.outcome == 'failure'
+        run: sleep 60
+      - id: retry
+        if: steps.deployment.outcome == 'failure'
+        uses: actions/deploy-pages@v4
+        with:
+          artifact_name: ${{ needs.build.outputs.artifact }}
