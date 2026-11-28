@@ -1,8 +1,12 @@
 name: Update Plano temperatures
 
 on:
+  # Times are UTC and avoid the top of the hour, when GitHub's scheduler is
+  # busiest and runs can start hours late. The second run is a backup: it
+  # fetches whatever the first missed and commits nothing if nothing changed.
   schedule:
-    - cron: "17 11 * * *"   # daily, ~5-6 AM Central
+    - cron: "43 8 * * *"    # 2:43 AM Central (3:43 AM during daylight time)
+    - cron: "37 12 * * *"   # 6:37 AM Central (7:37 AM during daylight time)
   workflow_dispatch:
 
 permissions:

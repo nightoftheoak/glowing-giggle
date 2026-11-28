@@ -36,7 +36,7 @@ autumn cool-downs arrive each year**.
   first run. After that it adds new days.
 - **Preservation:** stations sometimes correct a report within a few days, so the last 7 days are **provisional** and
   re-checked on every run. Older days are **final** and the script never changes them again.
-- `.github/workflows/update-weather.yml` runs the script every morning and commits any changes to
+- `.github/workflows/update-weather.yml` runs the script at about 2:43 AM Central, with a backup run at 6:37 AM, and commits any changes to
   `data/plano_daily.csv` (the main record) and `data/plano_daily.js` (the same data, formatted for the dashboard).
 - The daily average used for the warm-up and cool-down dates is NOAA's standard (high + low) ÷ 2.
 - **Live readings:** the current temperature and today's range so far come from DFW's hourly observations
